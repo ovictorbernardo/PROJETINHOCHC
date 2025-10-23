@@ -17,7 +17,7 @@ const Toolbar = ({ currentView, onViewChange }) => {
               <span className="text-red-600 text-xl">🚒</span>
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Museu do Centro Histórico e Cultural </h1>
+              <h1 className="text-2xl font-bold">Visitação ao Quartel Central - Agendamento </h1>
               <p className="text-red-100 text-sm">Corpo de Bombeiros Militar do Estado do Rio de Janeiro</p>
             </div>
           </div>

@@ -59,6 +59,57 @@ export const bloquearMes = (mesAno) => {
   return false;
 };
 
+// ✅ NOVA FUNÇÃO: Gerar agenda com todos os dias disponíveis
+export const generateAgendaLiberada = (mesAno) => {
+  const [mes, ano] = mesAno.split('-').map(Number);
+  const diasNoMes = getDiasNoMes(mes, ano);
+  const nomeMes = getNomeMes(mes);
+  const dias = [];
+
+  for (let dia = 1; dia <= diasNoMes; dia++) {
+    const data = new Date(ano, mes - 1, dia);
+    const diaSemana = data.getDay();
+    const ehDomingo = diaSemana === 0;
+    const ehPassado = data < new Date();
+    
+    // ✅ TODOS os dias ficam DISPONÍVEIS, exceto domingos e dias passados
+    let status = 'disponivel';
+    let observacao = '';
+    
+    if (ehDomingo) {
+      status = 'fechado';
+      observacao = 'Domingo - Fechado';
+    } else if (ehPassado) {
+      status = 'indisponivel';
+      observacao = 'Data passada';
+    }
+
+    dias.push({
+      dia: dia,
+      data: data.toISOString().split('T')[0],
+      status: status,
+      disponivel: status === 'disponivel',
+      ehDomingo: ehDomingo,
+      ehPassado: ehPassado,
+      observacao: observacao,
+      horarios: ['10:00', '14:00', '16:00']
+    });
+  }
+
+  return {
+    dias,
+    meta: {
+      mes,
+      ano,
+      nomeMes,
+      diasNoMes,
+      mesAno,
+      disponivel: true,
+      criadoEm: new Date().toISOString()
+    }
+  };
+};
+
 export const getInitialAgenda = (mesAno) => {
   const [mes, ano] = mesAno.split('-').map(Number);
   const diasNoMes = getDiasNoMes(mes, ano);
@@ -68,7 +119,10 @@ export const getInitialAgenda = (mesAno) => {
   const dias = [];
   
   for (let dia = 1; dia <= diasNoMes; dia++) {
-    const diaSemana = getDiaDaSemana(dia, mes, ano);
+    const data = new Date(ano, mes - 1, dia);
+    const diaSemana = data.getDay();
+    const ehDomingo = diaSemana === 0;
+    const ehPassado = data < new Date();
     
     // PADRÃO: Todos os dias começam como "indisponivel"
     let status = 'indisponivel';
@@ -79,9 +133,12 @@ export const getInitialAgenda = (mesAno) => {
       status = 'disponivel';
       observacao = '';
       
-      if (diaSemana === 0) {
+      if (ehDomingo) {
         status = 'fechado';
         observacao = 'Fechado aos domingos';
+      } else if (ehPassado) {
+        status = 'indisponivel';
+        observacao = 'Data passada';
       } else if (diaSemana === 6) {
         observacao = 'Horário especial de sábado';
       }
@@ -89,7 +146,11 @@ export const getInitialAgenda = (mesAno) => {
     
     dias.push({
       dia: dia,
+      data: data.toISOString().split('T')[0],
       status: status,
+      disponivel: status === 'disponivel',
+      ehDomingo: ehDomingo,
+      ehPassado: ehPassado,
       observacao: observacao,
       horarios: ['10:00', '14:00', '16:00']
     });

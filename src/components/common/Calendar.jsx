@@ -1,3 +1,5 @@
+// src/components/common/Calendar.jsx
+
 import React from 'react';
 
 const Calendar = ({ mesAno, dias, onDaySelect, selectedDay, isAdmin = false }) => {
@@ -14,7 +16,7 @@ const Calendar = ({ mesAno, dias, onDaySelect, selectedDay, isAdmin = false }) =
   const getDayStatusText = (status) => {
     const texts = {
       disponivel: 'Disponível',
-      lotado: 'Lotado',
+      lotado: 'Lotado', 
       fechado: 'Fechado',
       indisponivel: 'Indisponível'
     };
@@ -42,28 +44,13 @@ const Calendar = ({ mesAno, dias, onDaySelect, selectedDay, isAdmin = false }) =
     }
   };
 
-  // Verificar se o mês está disponível (pelo menos um dia disponível)
-  const mesDisponivel = dias.some(dia => dia.status === 'disponivel');
+  // REMOVIDO: Verificação e banner de mês bloqueado
+  // Apenas dias individuais controlam a disponibilidade
 
   return (
     <div className="calendar">
-      {/* Banner de status do mês */}
-      {!isAdmin && !mesDisponivel && (
-        <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <div className="flex items-center">
-            <span className="text-yellow-600 text-lg mr-2">⏸️</span>
-            <div>
-              <p className="text-yellow-800 font-semibold">
-                Mês Bloqueado para Agendamentos
-              </p>
-              <p className="text-yellow-700 text-sm">
-                Este mês não está disponível para reservas no momento.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* REMOVIDO: Banner de status do mês bloqueado */}
+      
       <div className="grid grid-cols-7 gap-2 mb-4">
         {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(dia => (
           <div key={dia} className="text-center font-semibold text-gray-600 py-2">
@@ -97,11 +84,7 @@ const Calendar = ({ mesAno, dias, onDaySelect, selectedDay, isAdmin = false }) =
                 ⓘ
               </div>
             )}
-            {!mesDisponivel && !isAdmin && (
-              <div className="text-xs text-red-600" title="Mês bloqueado">
-                🔒
-              </div>
-            )}
+            {/* REMOVIDO: Ícone de cadeado para mês bloqueado */}
           </div>
         ))}
       </div>

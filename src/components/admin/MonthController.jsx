@@ -1,3 +1,5 @@
+// src/components/admin/MonthController.jsx
+
 import React from 'react';
 import { useDispatch } from 'react-redux';
 import { setMesDisponivel } from '../../store/slices/agendaSlice';
@@ -14,14 +16,15 @@ const MonthController = ({ mesAno, mesDisponivel, onToggleDisponibilidade }) => 
   const handleToggleDisponibilidade = async (liberar) => {
     setLoading(true);
     try {
+      // ✅ CORREÇÃO: Disparar a action do Redux para atualizar o estado
       dispatch(setMesDisponivel({ 
         mesAno, 
         disponivel: liberar 
       }));
       
-      // Chama callback do parent se fornecido
+      // ✅ CORREÇÃO: Chamar o callback do parent para lógica adicional
       if (onToggleDisponibilidade) {
-        onToggleDisponibilidade(liberar);
+        await onToggleDisponibilidade(liberar);
       }
       
       if (liberar) {
