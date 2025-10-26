@@ -76,7 +76,7 @@ export class BookingService {
     }
   }
 
-  // ✅ NOVO: Buscar todos os agendamentos
+  // ✅ BUSCAR todos os agendamentos
   static async loadAllBookings() {
     try {
       const bookingsRef = collection(db, 'bookings');
@@ -93,4 +93,107 @@ export class BookingService {
       throw error;
     }
   }
+
+  // ✅ VERIFICAR DISPONIBILIDADE (NOVA FUNÇÃO)
+  static async checkAvailability(dateString, time) {
+    try {
+      console.log('Verificando disponibilidade para:', dateString, time);
+      
+      // Normalizar a data - formato esperado: "DD/MM-YYYY" ou "DD/MM/YYYY"
+      const [dia, mesAno] = dateString.split('/');
+      console.log('Dia:', dia, 'MesAno:', mesAno);
+      
+      // Consultar agendamentos para a data e horário específicos
+      const bookingsRef = collection(db, 'bookings');
+      const q = query(
+        bookingsRef,
+        where('data.mesAno', '==', mesAno),
+        where('data.dia', '==', parseInt(dia)),
+        where('data.horario', '==', time),
+        where('status', 'in', ['pendente', 'confirmado']) // Considerar apenas agendamentos ativos
+      );
+
+      const querySnapshot = await getDocs(q);
+      
+      // Calcular total de pessoas agendadas
+      let totalPessoas = 0;
+      querySnapshot.forEach((doc) => {
+        const booking = doc.data();
+        const adultos = booking.adultos?.length || 0;
+        const criancas = booking.criancas?.length || 0;
+        totalPessoas += adultos + criancas;
+        console.log('Agendamento encontrado:', { 
+          id: doc.id, 
+          adultos, 
+          criancas, 
+          total: adultos + criancas 
+        });
+      });
+
+      const maxLimit = 30;
+      const available = totalPessoas < maxLimit;
+
+      console.log('Resultado disponibilidade:', { 
+        totalPessoas, 
+        maxLimit, 
+        available,
+        vagasRestantes: maxLimit - totalPessoas
+      });
+
+      return {
+        available,
+        currentCount: totalPessoas,
+        maxLimit,
+        remaining: maxLimit - totalPessoas
+      };
+
+    } catch (error) {
+      console.error('Erro ao verificar disponibilidade:', error);
+      // Em caso de erro, retorna como disponível para não bloquear o usuário
+      return {
+        available: true,
+        currentCount: 0,
+        maxLimit: 30,
+        remaining: 30,
+        error: true
+      };
+    }
+  }
+
+  // ✅ VERIFICAR CPF DUPLICADO (NOVA FUNÇÃO)
+  static async checkDuplicateCPF(cpf, dateString) {
+    try {
+      const [dia, mesAno] = dateString.split('/');
+      
+      const bookingsRef = collection(db, 'bookings');
+      const q = query(
+        bookingsRef,
+        where('data.mesAno', '==', mesAno),
+        where('data.dia', '==', parseInt(dia)),
+        where('status', 'in', ['pendente', 'confirmado'])
+      );
+
+      const querySnapshot = await getDocs(q);
+      
+      for (const doc of querySnapshot.docs) {
+        const booking = doc.data();
+        // Verificar se o CPF está em algum adulto do agendamento
+        const hasDuplicate = booking.adultos?.some(adulto => 
+          adulto.cpf === cpf
+        );
+        if (hasDuplicate) return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Erro ao verificar CPF duplicado:', error);
+      return false;
+    }
+  }
 }
+
+// ✅ EXPORT FUNÇÕES INDIVIDUAIS PARA COMPATIBILIDADE
+export const checkAvailability = BookingService.checkAvailability;
+export const checkDuplicateCPF = BookingService.checkDuplicateCPF;
+
+export default BookingService;

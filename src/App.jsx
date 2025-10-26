@@ -1,5 +1,11 @@
+// src/App.jsx
 import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
+
+// 🎯 CONTEXTS & AUTH IMPORTS
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 
 // 🎯 COMPONENTS IMPORTS
 import Layout from './components/common/Layout';
@@ -11,6 +17,7 @@ import ErrorMessage from './components/ui/ErrorMessage';
 import VisitorView from './components/views/VisitorView';
 import AdminView from './components/views/AdminView';
 import UserBookingsView from './components/views/UserBookingsView';
+import AdminLogin from './components/auth/AdminLogin';
 
 // 🎯 REDUX IMPORTS
 import { 
@@ -46,11 +53,13 @@ import {
   generateAgendaLiberada
 } from './utils/initialData';
 
-const App = () => {
+// 🎯 COMPONENTE PRINCIPAL COM REDUX
+const AppContent = () => {
   // ======================
   // 🎯 HOOKS & SELECTORS
   // ======================
   const dispatch = useDispatch();
+  const { user, isAdmin } = useAuth();
   
   // Redux Selectors
   const currentView = useSelector(selectCurrentView);
@@ -105,6 +114,12 @@ const App = () => {
   };
 
   const handleViewChange = (view) => {
+    // Se tentar acessar admin sem estar logado, redireciona para login
+    if (view === 'admin' && !user) {
+      window.location.href = '/admin/login';
+      return;
+    }
+    
     dispatch(setCurrentView(view));
     dispatch(setSelectedDay(null));
     setError(null);
@@ -265,8 +280,8 @@ const App = () => {
           onMesAtual={handleMesAtual}
         />
 
-        {/* Controles de Admin */}
-        {currentView === 'admin' && (
+        {/* Controles de Admin - Só mostra se for admin logado */}
+        {currentView === 'admin' && isAdmin && (
           <AdminAvailabilityControls 
             mesDisponivel={mesDisponivel}
             agenda={agenda}
@@ -401,6 +416,15 @@ const App = () => {
         );
 
       case 'admin':
+        // Se não for admin, não mostra o conteúdo admin
+        if (!isAdmin) {
+          return (
+            <div className="text-center py-12">
+              <h2 className="text-2xl font-bold text-red-600 mb-4">Acesso Negado</h2>
+              <p className="text-gray-600">Você não tem permissão para acessar o painel administrativo.</p>
+            </div>
+          );
+        }
         return (
           <>
             {renderMonthHeader()}
@@ -434,6 +458,38 @@ const App = () => {
     <Layout currentView={currentView} onViewChange={handleViewChange}>
       {renderContent()}
     </Layout>
+  );
+};
+
+// 🎯 COMPONENTE APP PRINCIPAL COM ROTAS
+const App = () => {
+  return (
+    <AuthProvider>
+      <Router>
+        <div className="App">
+          <Routes>
+            {/* 🏠 ROTA PÚBLICA PRINCIPAL */}
+            <Route path="/" element={<AppContent />} />
+            
+            {/* 🔐 ROTA DE LOGIN ADMIN */}
+            <Route path="/admin/login" element={<AdminLogin />} />
+            
+            {/* 🛡️ ROTAS PROTEGIDAS - ADMIN */}
+            <Route 
+              path="/admin" 
+              element={
+                <ProtectedRoute requireAdmin={true}>
+                  <AppContent />
+                </ProtectedRoute>
+              } 
+            />
+            
+            {/* 🔄 ROTA FALLBACK */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
+      </Router>
+    </AuthProvider>
   );
 };
 

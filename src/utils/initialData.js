@@ -1,8 +1,32 @@
-// Configuração de disponibilidade por mês
-const mesesDisponiveis = {
-  // Exemplo: "10-2025": true
+// src/utils/initialData.js
+
+// 🗂️ DADOS PERSISTENTES NO localStorage
+const STORAGE_KEY = 'agenda_meses_disponiveis';
+
+// 🎯 FUNÇÃO PARA SALVAR NO LOCALSTORAGE
+const salvarMesesDisponiveis = (meses) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(meses));
+  } catch (error) {
+    console.error('Erro ao salvar meses disponíveis:', error);
+  }
 };
 
+// 🎯 FUNÇÃO PARA CARREGAR DO LOCALSTORAGE
+const carregarMesesDisponiveis = () => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch (error) {
+    console.error('Erro ao carregar meses disponíveis:', error);
+    return {};
+  }
+};
+
+// 🗓️ MESES DISPONÍVEIS (agora persistem)
+let mesesDisponiveis = carregarMesesDisponiveis();
+
+// Configuração de disponibilidade por mês
 export const getDiasNoMes = (mes, ano) => {
   return new Date(ano, mes, 0).getDate();
 };
@@ -51,11 +75,13 @@ export const isMesDisponivel = (mesAno) => {
 
 export const liberarMes = (mesAno) => {
   mesesDisponiveis[mesAno] = true;
+  salvarMesesDisponiveis(mesesDisponiveis);
   return true;
 };
 
 export const bloquearMes = (mesAno) => {
   mesesDisponiveis[mesAno] = false;
+  salvarMesesDisponiveis(mesesDisponiveis);
   return false;
 };
 

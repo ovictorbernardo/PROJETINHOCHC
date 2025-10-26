@@ -1,7 +1,8 @@
 // src/components/user/Booking/AdvancedBookingForm.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import InfoMessage from '../../ui/InfoMessage';
 import { adultTemplate, childTemplate, validateCPF, validateEmail, calculateAge } from '../../../utils/bookingTypes';
+import { checkAvailability } from '../../../services/bookingService'; // Importar serviço de verificação
 
 const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading }) => {
   const [formData, setFormData] = useState({
@@ -16,6 +17,49 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
   });
 
   const [errors, setErrors] = useState({});
+  const [availability, setAvailability] = useState({
+    loading: true,
+    available: true,
+    currentCount: 0,
+    maxLimit: 30
+  });
+
+  // 🎯 VERIFICAR DISPONIBILIDADE DO HORÁRIO
+  useEffect(() => {
+    checkTimeAvailability();
+  }, [formData.data.horario, selectedDay.dia, mesAno]);
+
+  const checkTimeAvailability = async () => {
+    setAvailability(prev => ({ ...prev, loading: true }));
+    
+    try {
+      const dateString = `${selectedDay.dia.toString().padStart(2, '0')}/${mesAno}`;
+      const result = await checkAvailability(dateString, formData.data.horario);
+      
+      setAvailability({
+        loading: false,
+        available: result.available,
+        currentCount: result.currentCount,
+        maxLimit: result.maxLimit
+      });
+    } catch (error) {
+      console.error('Erro ao verificar disponibilidade:', error);
+      setAvailability({
+        loading: false,
+        available: true, // Em caso de erro, permite o agendamento
+        currentCount: 0,
+        maxLimit: 30
+      });
+    }
+  };
+
+  // 🎯 ATUALIZAR HORÁRIO E VERIFICAR DISPONIBILIDADE
+  const handleTimeChange = (newTime) => {
+    setFormData({
+      ...formData,
+      data: { ...formData.data, horario: newTime }
+    });
+  };
 
   // 🎯 GERENCIAMENTO DE ADULTOS
   const addAdulto = () => {
@@ -70,6 +114,19 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
   const validateForm = () => {
     const newErrors = {};
 
+    // Verificar disponibilidade primeiro
+    if (!availability.available) {
+      newErrors.availability = `Horário lotado! Já temos ${availability.currentCount} pessoas agendadas.`;
+    }
+
+    // Verificar se o total não excede o limite
+    const totalPessoas = formData.adultos.length + formData.criancas.length;
+    const vagasRestantes = availability.maxLimit - availability.currentCount;
+    
+    if (totalPessoas > vagasRestantes) {
+      newErrors.capacity = `Você está tentando agendar ${totalPessoas} pessoas, mas só temos ${vagasRestantes} vagas restantes neste horário.`;
+    }
+
     // Valida adultos
     formData.adultos.forEach((adulto, index) => {
       if (!adulto.nome.trim()) {
@@ -120,6 +177,8 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
   };
 
   const [mes, ano] = mesAno.split('-').map(Number);
+  const totalPessoas = formData.adultos.length + formData.criancas.length;
+  const vagasRestantes = availability.maxLimit - availability.currentCount;
 
   return (
     <div className="bg-white rounded-lg shadow-lg p-6 mb-6 max-w-4xl mx-auto">
@@ -143,22 +202,66 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
       />
 
       <form onSubmit={handleSubmit} className="space-y-6 mt-6">
-        {/* 📅 HORÁRIO DA VISITA */}
+        {/* 📅 HORÁRIO DA VISITA COM DISPONIBILIDADE */}
         <div className="bg-blue-50 p-4 rounded-lg">
-          <h3 className="font-semibold text-blue-800 mb-3">Horário da Visita</h3>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold text-blue-800">Horário da Visita</h3>
+            {!availability.loading && (
+              <span className={`text-sm font-medium px-2 py-1 rounded ${
+                availability.available 
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-red-100 text-red-800'
+              }`}>
+                {availability.available ? 
+                  `${vagasRestantes} vagas restantes` : 
+                  'LOTADO'
+                }
+              </span>
+            )}
+          </div>
+          
           <select
             value={formData.data.horario}
-            onChange={(e) => setFormData({
-              ...formData,
-              data: { ...formData.data, horario: e.target.value }
-            })}
-            className="w-full p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            onChange={(e) => handleTimeChange(e.target.value)}
+            className="w-full p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2"
             disabled={loading}
           >
             <option value="10:00">10:00 - Manhã</option>
             <option value="14:00">14:00 - Tarde</option>
             <option value="16:00">16:00 - Tarde</option>
           </select>
+
+          {/* STATUS DE DISPONIBILIDADE */}
+          {availability.loading ? (
+            <div className="flex items-center text-blue-600 text-sm">
+              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
+              Verificando disponibilidade...
+            </div>
+          ) : (
+            <div className={`text-sm ${
+              availability.available ? 'text-green-600' : 'text-red-600'
+            }`}>
+              {availability.available ? (
+                <span>✅ Disponível - {availability.currentCount}/30 pessoas agendadas</span>
+              ) : (
+                <span>❌ Lotado - {availability.currentCount}/30 pessoas agendadas</span>
+              )}
+            </div>
+          )}
+
+          {/* ERRO DE DISPONIBILIDADE */}
+          {errors.availability && (
+            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+              {errors.availability}
+            </div>
+          )}
+
+          {/* ERRO DE CAPACIDADE */}
+          {errors.capacity && (
+            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+              {errors.capacity}
+            </div>
+          )}
         </div>
 
         {/* 👥 SEÇÃO DE ADULTOS */}
@@ -171,7 +274,8 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
               <button
                 type="button"
                 onClick={addAdulto}
-                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
+                disabled={!availability.available || loading}
+                className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-3 py-1 rounded text-sm"
               >
                 + Adicionar Adulto
               </button>
@@ -186,7 +290,8 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                   <button
                     type="button"
                     onClick={() => removeAdulto(index)}
-                    className="text-red-600 hover:text-red-800 text-sm"
+                    disabled={loading}
+                    className="text-red-600 hover:text-red-800 disabled:text-gray-400 text-sm"
                   >
                     Remover
                   </button>
@@ -206,7 +311,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       errors[`adulto_${index}_nome`] ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="Nome completo"
-                    disabled={loading}
+                    disabled={loading || !availability.available}
                   />
                   {errors[`adulto_${index}_nome`] && (
                     <p className="text-red-500 text-xs mt-1">{errors[`adulto_${index}_nome`]}</p>
@@ -225,7 +330,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       errors[`adulto_${index}_cpf`] ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="000.000.000-00"
-                    disabled={loading}
+                    disabled={loading || !availability.available}
                   />
                   {errors[`adulto_${index}_cpf`] && (
                     <p className="text-red-500 text-xs mt-1">{errors[`adulto_${index}_cpf`]}</p>
@@ -244,7 +349,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       errors[`adulto_${index}_email`] ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="seu@email.com"
-                    disabled={loading}
+                    disabled={loading || !availability.available}
                   />
                   {errors[`adulto_${index}_email`] && (
                     <p className="text-red-500 text-xs mt-1">{errors[`adulto_${index}_email`]}</p>
@@ -263,7 +368,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       errors[`adulto_${index}_telefone`] ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="(21) 99999-9999"
-                    disabled={loading}
+                    disabled={loading || !availability.available}
                   />
                   {errors[`adulto_${index}_telefone`] && (
                     <p className="text-red-500 text-xs mt-1">{errors[`adulto_${index}_telefone`]}</p>
@@ -283,7 +388,8 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
             <button
               type="button"
               onClick={addCrianca}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm"
+              disabled={!availability.available || loading}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-3 py-1 rounded text-sm"
             >
               + Adicionar Criança
             </button>
@@ -301,7 +407,8 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                   <button
                     type="button"
                     onClick={() => removeCrianca(index)}
-                    className="text-red-600 hover:text-red-800 text-sm"
+                    disabled={loading}
+                    className="text-red-600 hover:text-red-800 disabled:text-gray-400 text-sm"
                   >
                     Remover
                   </button>
@@ -321,7 +428,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                         errors[`crianca_${index}_nome`] ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="Nome completo oficial da criança"
-                      disabled={loading}
+                      disabled={loading || !availability.available}
                     />
                     {errors[`crianca_${index}_nome`] && (
                       <p className="text-red-500 text-xs mt-1">{errors[`crianca_${index}_nome`]}</p>
@@ -338,7 +445,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       value={crianca.dataNascimento}
                       onChange={(e) => updateCrianca(index, 'dataNascimento', e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      disabled={loading}
+                      disabled={loading || !availability.available}
                     />
                   </div>
 
@@ -356,7 +463,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       placeholder="Idade em anos"
                       min="0"
                       max="17"
-                      disabled={loading}
+                      disabled={loading || !availability.available}
                     />
                     {errors[`crianca_${index}_idade`] && (
                       <p className="text-red-500 text-xs mt-1">{errors[`crianca_${index}_idade`]}</p>
@@ -376,7 +483,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                         errors[`crianca_${index}_responsavel`] ? 'border-red-500' : 'border-gray-300'
                       }`}
                       placeholder="Nome do responsável legal"
-                      disabled={loading}
+                      disabled={loading || !availability.available}
                     />
                     {errors[`crianca_${index}_responsavel`] && (
                       <p className="text-red-500 text-xs mt-1">{errors[`crianca_${index}_responsavel`]}</p>
@@ -393,7 +500,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       onChange={(e) => updateCrianca(index, 'documentoResponsavel', e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="RG ou CPF do responsável"
-                      disabled={loading}
+                      disabled={loading || !availability.available}
                     />
                   </div>
 
@@ -407,7 +514,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       onChange={(e) => updateCrianca(index, 'contatoResponsavel', e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="Telefone e/ou email do responsável"
-                      disabled={loading}
+                      disabled={loading || !availability.available}
                     />
                   </div>
 
@@ -419,7 +526,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       checked={crianca.autorizacaoImagem}
                       onChange={(e) => updateCrianca(index, 'autorizacaoImagem', e.target.checked)}
                       className="mr-2"
-                      disabled={loading}
+                      disabled={loading || !availability.available}
                     />
                     <label htmlFor={`autorizacao-${index}`} className="text-sm text-gray-700">
                       Autorizo o uso de imagens da criança para fins educativos e de divulgação
@@ -437,7 +544,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="Alergias, medicamentos, necessidades especiais, etc."
                       rows="2"
-                      disabled={loading}
+                      disabled={loading || !availability.available}
                     />
                   </div>
                 </div>
@@ -460,7 +567,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             placeholder="Alguma informação adicional que considere importante..."
             rows="3"
-            disabled={loading}
+            disabled={loading || !availability.available}
           />
         </div>
 
@@ -472,8 +579,14 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
         />
 
         {/* 📊 RESUMO */}
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <h3 className="font-semibold text-green-800 mb-2">Resumo da Visita</h3>
+        <div className={`border rounded-lg p-4 ${
+          !availability.available ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'
+        }`}>
+          <h3 className={`font-semibold mb-2 ${
+            !availability.available ? 'text-red-800' : 'text-green-800'
+          }`}>
+            Resumo da Visita
+          </h3>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="text-gray-600">Data:</div>
             <div className="font-medium">{selectedDay.dia}/{mes}/{ano}</div>
@@ -488,7 +601,14 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
             <div className="font-medium">{formData.criancas.length}</div>
             
             <div className="text-gray-600">Total de Pessoas:</div>
-            <div className="font-medium">{formData.adultos.length + formData.criancas.length}</div>
+            <div className="font-medium">{totalPessoas}</div>
+            
+            <div className="text-gray-600">Vagas Restantes:</div>
+            <div className={`font-medium ${
+              vagasRestantes < 5 ? 'text-red-600' : 'text-green-600'
+            }`}>
+              {vagasRestantes} / {availability.maxLimit}
+            </div>
           </div>
         </div>
 
@@ -504,16 +624,18 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
           </button>
           <button
             type="submit"
-            disabled={loading}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center"
+            disabled={loading || !availability.available}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center"
           >
             {loading ? (
               <>
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
                 Enviando Agendamento...
               </>
+            ) : !availability.available ? (
+              'Horário Lotado'
             ) : (
-              `Confirmar Agendamento (${formData.adultos.length + formData.criancas.length} pessoas)`
+              `Confirmar Agendamento (${totalPessoas} pessoas)`
             )}
           </button>
         </div>

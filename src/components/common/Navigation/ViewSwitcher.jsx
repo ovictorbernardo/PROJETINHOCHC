@@ -1,30 +1,50 @@
 // src/components/common/Navigation/ViewSwitcher.jsx
-import React from 'react';
+import React, { useState } from 'react';
+import { useAuth } from '../../../contexts/AuthContext';
+import UserProfileMenu from './UserProfileMenu';
+import './ViewSwitcher.css';
 
 const ViewSwitcher = ({ currentView, onViewChange }) => {
-  const views = [
-    { id: 'visitante', label: 'Visitante', icon: '🏛️', shortLabel: 'Visitante' },
-    { id: 'admin', label: 'Admin', icon: '⚙️', shortLabel: 'Admin' },
-    { id: 'meus-agendamentos', label: 'Meus Agendamentos', icon: '📋', shortLabel: 'Agendamentos' }
-  ];
+  const { user, isAdmin } = useAuth();
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  const handleViewChange = (view) => {
+    onViewChange(view);
+    setIsProfileOpen(false);
+  };
 
   return (
-    <div className="flex flex-wrap gap-2 bg-gray-100 p-2 rounded-lg">
-      {views.map(view => (
+    <div className="modern-view-switcher">
+      {/* 📱 MENU PRINCIPAL */}
+      <nav className="view-nav">
         <button
-          key={view.id}
-          onClick={() => onViewChange(view.id)}
-          className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors text-sm ${
-            currentView === view.id
-              ? 'bg-white text-blue-600 shadow-sm font-semibold'
-              : 'text-gray-600 hover:text-gray-800 hover:bg-gray-200'
-          }`}
+          onClick={() => handleViewChange('visitante')}
+          className={`nav-btn ${currentView === 'visitante' ? 'nav-btn-active' : ''}`}
         >
-          <span className="hidden sm:inline">{view.icon}</span>
-          <span className="hidden sm:inline">{view.label}</span>
-          <span className="sm:hidden">{view.shortLabel}</span>
+          <span className="nav-btn-icon">📅</span>
+          <span className="nav-btn-text">Agendar Visita</span>
         </button>
-      ))}
+
+        <button
+          onClick={() => handleViewChange('meus-agendamentos')}
+          className={`nav-btn ${currentView === 'meus-agendamentos' ? 'nav-btn-active' : ''}`}
+        >
+          <span className="nav-btn-icon">📋</span>
+          <span className="nav-btn-text">Meus Agendamentos</span>
+        </button>
+      </nav>
+
+      {/* 👤 PERFIL DO USUÁRIO */}
+      <div className="view-profile">
+        <UserProfileMenu 
+          user={user}
+          isAdmin={isAdmin}
+          currentView={currentView}
+          onViewChange={handleViewChange}
+          isOpen={isProfileOpen}
+          onToggle={() => setIsProfileOpen(!isProfileOpen)}
+        />
+      </div>
     </div>
   );
 };
