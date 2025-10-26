@@ -1,3 +1,4 @@
+// src/hooks/useBookings.js
 import { useState, useEffect } from 'react';
 import { BookingService } from '../services/bookingService';
 
@@ -7,24 +8,53 @@ export const useBookings = (filters = {}) => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    setLoading(true);
-    
-    const unsubscribe = BookingService.subscribeToBookings(
-      (bookingsData) => {
-        setBookings(bookingsData);
-        setLoading(false);
+    const loadBookings = async () => {
+      try {
+        setLoading(true);
         setError(null);
-      },
-      filters
-    );
+        
+        let bookingsData = [];
+        
+        if (filters.mesAno) {
+          // Carregar por mês específico
+          bookingsData = await BookingService.loadBookingsByMes(filters.mesAno);
+        } else {
+          // Carregar todos
+          bookingsData = await BookingService.loadAllBookings();
+        }
+        
+        setBookings(bookingsData);
+      } catch (err) {
+        console.error('Erro ao carregar agendamentos:', err);
+        setError('Erro ao carregar agendamentos');
+        setBookings([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    return () => unsubscribe();
+    loadBookings();
+
+    // Escuta mudanças em tempo real se houver filtro de mês
+    if (filters.mesAno) {
+      const unsubscribe = BookingService.subscribeToBookings(filters.mesAno, (bookingsData) => {
+        setBookings(bookingsData);
+      });
+
+      return () => unsubscribe();
+    }
   }, [JSON.stringify(filters)]);
 
   const createBooking = async (bookingData) => {
     try {
-      return await BookingService.createBooking(bookingData);
+      setError(null);
+      const newBooking = await BookingService.createBooking(bookingData);
+      
+      // Atualiza estado local
+      setBookings(prev => [...prev, newBooking]);
+      return newBooking;
     } catch (err) {
+      console.error('Erro ao criar agendamento:', err);
       setError('Erro ao criar agendamento');
       throw err;
     }
@@ -32,12 +62,34 @@ export const useBookings = (filters = {}) => {
 
   const updateBookingStatus = async (bookingId, status) => {
     try {
+      setError(null);
       await BookingService.updateBookingStatus(bookingId, status);
+      
+      // Atualiza estado local
+      setBookings(prev => 
+        prev.map(booking => 
+          booking.id === bookingId 
+            ? { ...booking, status, updatedAt: new Date().toISOString() }
+            : booking
+        )
+      );
+      return true;
     } catch (err) {
+      console.error('Erro ao atualizar agendamento:', err);
       setError('Erro ao atualizar agendamento');
       throw err;
     }
   };
 
-  return { bookings, loading, error, createBooking, updateBookingStatus };
+  return { 
+    bookings, 
+    loading, 
+    error, 
+    createBooking, 
+    updateBookingStatus,
+    refetch: () => {
+      setLoading(true);
+      // Recarregar será feito pelo useEffect
+    }
+  };
 };

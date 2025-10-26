@@ -1,88 +1,100 @@
+// src/hooks/useAgenda.js
 import { useState, useEffect } from 'react';
 import { AgendaService } from '../services/agendaService';
-import { getAgendaByMesAno } from '../utils/initialData';
+import { getAgendaByMesAno, generateAgendaLiberada } from '../utils/initialData';
 
 export const useAgenda = (mesAno) => {
-  const [agenda, setAgenda] = useState(() => getAgendaByMesAno(mesAno));
-  const [loading, setLoading] = useState(false);
+  const [agenda, setAgenda] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [usingLocalData, setUsingLocalData] = useState(true);
-  const [firebaseConnected, setFirebaseConnected] = useState(false);
+  const [usingFirebase, setUsingFirebase] = useState(false);
 
   useEffect(() => {
     const loadAgenda = async () => {
       try {
         setLoading(true);
+        setError(null);
         
-        await new Promise((resolve, reject) => {
-          const unsubscribe = AgendaService.subscribeToAgenda(
-            mesAno,
-            (firebaseData) => {
-              if (firebaseData.dias && firebaseData.dias.length > 0) {
-                setAgenda(firebaseData);
-                setUsingLocalData(false);
-                setFirebaseConnected(true);
-              } else {
-                // Se Firebase vazio, usa dados locais para o mês específico
-                setAgenda(getAgendaByMesAno(mesAno));
-                setUsingLocalData(true);
-                setFirebaseConnected(true);
-                
-                // Sincroniza dados locais com Firebase
-                AgendaService.saveAgenda(mesAno, getAgendaByMesAno(mesAno))
-                  .catch(err => console.log('❌ Falha na sincronização:', err));
-              }
-              unsubscribe();
-              resolve();
-            },
-            (firebaseError) => {
-              // Firebase offline - usa dados locais para o mês
-              setAgenda(getAgendaByMesAno(mesAno));
-              setUsingLocalData(true);
-              setFirebaseConnected(false);
-              setError('Firebase offline - Modo local ativo');
-              unsubscribe();
-              resolve();
-            }
-          );
-        });
+        // 1. Tenta carregar do Firebase
+        const firebaseAgenda = await AgendaService.loadAgenda(mesAno);
         
+        if (firebaseAgenda) {
+          setAgenda(firebaseAgenda);
+          setUsingFirebase(true);
+        } else {
+          // 2. Fallback para dados locais
+          const localAgenda = getAgendaByMesAno(mesAno);
+          setAgenda(localAgenda);
+          setUsingFirebase(false);
+        }
       } catch (err) {
-        setAgenda(getAgendaByMesAno(mesAno));
-        setUsingLocalData(true);
-        setFirebaseConnected(false);
-        setError('Sistema offline - Modo local');
+        console.error('Erro ao carregar agenda:', err);
+        setError('Erro ao carregar agenda');
+        // Fallback para dados locais em caso de erro
+        const localAgenda = getAgendaByMesAno(mesAno);
+        setAgenda(localAgenda);
+        setUsingFirebase(false);
       } finally {
         setLoading(false);
       }
     };
 
     loadAgenda();
-  }, [mesAno]); // ✅ Re-executa quando mesAno muda
 
-  const saveAgenda = async (dadosAgenda) => {
+    // 3. Escuta mudanças em tempo real
+    const unsubscribe = AgendaService.subscribeToAgenda(mesAno, (agendaData) => {
+      if (agendaData) {
+        setAgenda(agendaData);
+        setUsingFirebase(true);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [mesAno]);
+
+  const saveAgenda = async (agendaData) => {
     try {
-      await AgendaService.saveAgenda(mesAno, dadosAgenda);
-      setAgenda(dadosAgenda);
-      setUsingLocalData(false);
-      setFirebaseConnected(true);
       setError(null);
+      await AgendaService.saveAgenda(mesAno, agendaData);
+      setAgenda(agendaData);
+      setUsingFirebase(true);
       return true;
     } catch (err) {
-      setAgenda(dadosAgenda);
-      setUsingLocalData(true);
-      setFirebaseConnected(false);
-      setError('Firebase offline - Dados salvos localmente');
-      return true;
+      console.error('Erro ao salvar agenda:', err);
+      setError('Erro ao salvar agenda');
+      return false;
     }
   };
 
-  return { 
-    agenda, 
-    loading, 
-    error, 
+  const updateMesStatus = async (disponivel) => {
+    try {
+      setError(null);
+      await AgendaService.updateMesStatus(mesAno, disponivel);
+      
+      // Atualiza estado local
+      const updatedAgenda = {
+        ...agenda,
+        meta: { ...agenda.meta, disponivel }
+      };
+      setAgenda(updatedAgenda);
+      return true;
+    } catch (err) {
+      console.error('Erro ao atualizar status:', err);
+      setError('Erro ao atualizar status do mês');
+      return false;
+    }
+  };
+
+  return {
+    agenda,
+    loading,
+    error,
+    usingFirebase,
     saveAgenda,
-    usingLocalData,
-    firebaseConnected
+    updateMesStatus,
+    refetch: () => {
+      setLoading(true);
+      // Recarregar dados
+    }
   };
 };

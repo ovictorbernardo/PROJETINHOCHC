@@ -1,18 +1,51 @@
+// src/components/common/Layout.jsx
 import React from 'react';
-import Toolbar from './Toolbar';
+import ViewSwitcher from './Navigation/ViewSwitcher';
 
 const Layout = ({ children, currentView, onViewChange }) => {
   return (
     <div className="min-h-screen bg-gray-50">
-      <Toolbar currentView={currentView} onViewChange={onViewChange} />
-      <main className="container mx-auto p-4 pt-6">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row justify-between items-center py-4 space-y-4 sm:space-y-0">
+            <div className="flex items-center">
+              <div className="bg-red-600 text-white p-2 rounded-lg mr-3">
+                <span className="text-xl">🚒</span>
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+                  Agendamento - Visitação ao Quartel Central
+                
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-600">
+                  CHC - Corpo de Bombeiros Militar do Estado do Rio de Janeiro
+                
+                </p>
+              </div>
+            </div>
+            
+            {/* 🆕 MELHORADO: ViewSwitcher responsivo */}
+            <ViewSwitcher 
+              currentView={currentView} 
+              onViewChange={onViewChange} 
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
         {children}
       </main>
-      
-      <footer className="bg-gray-800 text-white p-4 mt-8">
-        <div className="container mx-auto text-center">
-          <p>Museu do Centro Histórico e Cultural do Corpo de Bombeiros Militar do Estado do Rio de Janeiro</p>
-          <p className="text-sm text-gray-400 mt-2">© {new Date().getFullYear()} - Todos os direitos reservados - ASTI</p>
+
+      {/* Footer */}
+      <footer className="bg-white border-t mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="text-center text-gray-600">
+            <p className="text-sm sm:text-base">© 2025  Corpo de Bombeiros Militar do Estado do Rio de Janeiro</p>
+            <p className="text-xs sm:text-sm mt-1">ASTI - Versão 4.0</p>
+          </div>
         </div>
       </footer>
     </div>

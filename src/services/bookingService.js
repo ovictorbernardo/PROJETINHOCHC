@@ -1,40 +1,96 @@
-import { db } from './firebase.js';
-import { collection, addDoc, updateDoc, doc, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+// src/services/bookingService.js
+import { db } from './firebase';
+import { collection, addDoc, getDocs, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 
 export class BookingService {
+  // ✅ CRIAR novo agendamento (ESTRUTURA NOVA)
   static async createBooking(bookingData) {
-    return await addDoc(collection(db, 'public/data/agendamentos'), {
-      ...bookingData,
-      status: 'pendente',
-      createdAt: new Date().toISOString()
-    });
+    try {
+      const bookingsRef = collection(db, 'bookings');
+      const docRef = await addDoc(bookingsRef, {
+        // 🆕 ESTRUTURA NOVA
+        data: bookingData.data,
+        adultos: bookingData.adultos,
+        criancas: bookingData.criancas,
+        informacoesAdicionais: bookingData.informacoesAdicionais,
+        totalPessoas: bookingData.totalPessoas,
+        
+        // Metadados
+        status: 'pendente',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      
+      return { id: docRef.id, ...bookingData };
+    } catch (error) {
+      console.error('Erro ao criar agendamento:', error);
+      throw error;
+    }
   }
 
-  static subscribeToBookings(callback, filters = {}) {
-    let q = collection(db, 'public/data/agendamentos');
-    
-    const conditions = [];
-    if (filters.mesAno) {
-      conditions.push(where('mesAno', '==', filters.mesAno));
+  // ✅ CARREGAR agendamentos por mês
+  static async loadBookingsByMes(mesAno) {
+    try {
+      const bookingsRef = collection(db, 'bookings');
+      const q = query(bookingsRef, where('data.mesAno', '==', mesAno));
+      const querySnapshot = await getDocs(q);
+      
+      const bookings = [];
+      querySnapshot.forEach((doc) => {
+        bookings.push({ id: doc.id, ...doc.data() });
+      });
+      
+      return bookings;
+    } catch (error) {
+      console.error('Erro ao carregar agendamentos:', error);
+      throw error;
     }
-    
-    if (conditions.length > 0) {
-      q = query(q, ...conditions, orderBy('createdAt', 'desc'));
-    } else {
-      q = query(q, orderBy('createdAt', 'desc'));
-    }
+  }
 
+  // ✅ OUVIR agendamentos em tempo real
+  static subscribeToBookings(mesAno, callback) {
+    const bookingsRef = collection(db, 'bookings');
+    const q = query(bookingsRef, where('data.mesAno', '==', mesAno));
+    
     return onSnapshot(q, (snapshot) => {
-      const bookings = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const bookings = [];
+      snapshot.forEach((doc) => {
+        bookings.push({ id: doc.id, ...doc.data() });
+      });
       callback(bookings);
     });
   }
 
+  // ✅ ATUALIZAR status do agendamento
   static async updateBookingStatus(bookingId, status) {
-    const bookingRef = doc(db, 'public/data/agendamentos', bookingId);
-    await updateDoc(bookingRef, { status });
+    try {
+      const bookingRef = doc(db, 'bookings', bookingId);
+      await updateDoc(bookingRef, {
+        status,
+        updatedAt: new Date().toISOString()
+      });
+      return true;
+    } catch (error) {
+      console.error('Erro ao atualizar agendamento:', error);
+      throw error;
+    }
+  }
+
+  // ✅ NOVO: Buscar todos os agendamentos
+  static async loadAllBookings() {
+    try {
+      const bookingsRef = collection(db, 'bookings');
+      const querySnapshot = await getDocs(bookingsRef);
+      
+      const bookings = [];
+      querySnapshot.forEach((doc) => {
+        bookings.push({ id: doc.id, ...doc.data() });
+      });
+      
+      return bookings;
+    } catch (error) {
+      console.error('Erro ao carregar todos os agendamentos:', error);
+      throw error;
+    }
   }
 }

@@ -1,13 +1,16 @@
+// src/components/admin/AdminPanel/AdminPanel.jsx
 import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
-import AdminCalendarSettings from './AdminCalendarSettings';
-import BookingsManager from './BookingsManager';
-import MonthController from './MonthController';
+// ✅ IMPORTS MODULARES ATUALIZADOS
+import AdminTabs from './AdminTabs';
+import MonthController from '../Availability/MonthController'; // 🆕 TROCADO: MonthAvailability → MonthController
+import CalendarSettings from '../Management/CalendarSettings/CalendarSettings';
+import BookingsManager from '../Management/BookingsManager/BookingsManager';
 
 // ✅ IMPORTS COM CAMINHOS CORRETOS
-import { selectCurrentAgenda, selectCurrentMesAno } from '../../store/slices/agendaSlice';
-import { selectAllBookings } from '../../store/slices/bookingSlice';
-import { getNomeMes } from '../../utils/initialData';
+import { selectCurrentAgenda, selectCurrentMesAno } from '../../../store/slices/agendaSlice';
+import { selectAllBookings } from '../../../store/slices/bookingSlice';
+import { getNomeMes } from '../../../utils/initialData';
 
 const AdminPanel = ({ mesAno, onToggleDisponibilidade }) => {
   const [activeTab, setActiveTab] = useState('agenda');
@@ -40,7 +43,7 @@ const AdminPanel = ({ mesAno, onToggleDisponibilidade }) => {
         </div>
       </div>
 
-      {/* Controle de Disponibilidade Mensal */}
+      {/* 🆕 ATUALIZADO: MonthController em vez de MonthAvailability */}
       <div className="border-b">
         <MonthController 
           mesAno={currentMesAno}
@@ -51,33 +54,12 @@ const AdminPanel = ({ mesAno, onToggleDisponibilidade }) => {
 
       {/* Tabs de Navegação */}
       <div className="border-b">
-        <nav className="flex">
-          <button
-            onClick={() => setActiveTab('agenda')}
-            className={`px-6 py-3 font-medium ${
-              activeTab === 'agenda'
-                ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            📅 Configurar Agenda
-          </button>
-          <button
-            onClick={() => setActiveTab('reservas')}
-            className={`px-6 py-3 font-medium ${
-              activeTab === 'reservas'
-                ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            📋 Gerenciar Reservas
-          </button>
-        </nav>
+        <AdminTabs activeTab={activeTab} onTabChange={setActiveTab} />
       </div>
 
       <div className="p-6">
         {activeTab === 'agenda' && (
-          <AdminCalendarSettings
+          <CalendarSettings
             agenda={agenda}
             mesAno={currentMesAno}
           />
