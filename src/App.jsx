@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
+
 // 🎯 CONTEXTS & AUTH IMPORTS
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -19,18 +20,25 @@ import AdminView from './components/views/AdminView';
 import UserBookingsView from './components/views/UserBookingsView';
 import AdminLogin from './components/auth/AdminLogin';
 
-// 🎯 REDUX IMPORTS
+// 🎯 SERVICES IMPORTS
+import BookingService from './services/bookingService';
+
+// 🎯 REDUX IMPORTS - ATUALIZADOS
 import { 
   setCurrentMesAno, 
-  loadAgenda,
+  fetchAgendaData,
   setMesDisponivel,
   selectCurrentAgenda,
-  selectCurrentMesAno
+  selectCurrentMesAno,
+  selectAgendaLoading,
+  selectAgendaError
 } from './store/slices/agendaSlice';
 import { 
   addBooking,
   setBookingsLoading,
-  selectBookingsLoading 
+  selectBookingsLoading,
+  selectAllBookings,
+  setBookingsError
 } from './store/slices/bookingSlice';
 import { 
   setCurrentView, 
@@ -47,7 +55,6 @@ import {
   getProximoMes, 
   getMesAnterior, 
   getNomeMes, 
-  getAgendaByMesAno,
   liberarMes,
   bloquearMes,
   generateAgendaLiberada
@@ -67,7 +74,10 @@ const AppContent = () => {
   const bookingFormLoading = useSelector(selectBookingFormLoading);
   const currentMesAno = useSelector(selectCurrentMesAno);
   const agenda = useSelector(selectCurrentAgenda);
+  const agendaLoading = useSelector(selectAgendaLoading);
+  const agendaError = useSelector(selectAgendaError);
   const bookingsLoading = useSelector(selectBookingsLoading);
+  const allBookings = useSelector(selectAllBookings);
 
   // Local State
   const [error, setError] = useState(null);
@@ -83,8 +93,8 @@ const AppContent = () => {
     const loadAgendaData = async () => {
       try {
         setError(null);
-        const agendaData = getAgendaByMesAno(currentMesAno);
-        dispatch(loadAgenda({ mesAno: currentMesAno, agenda: agendaData }));
+        // ✅ USAR ASYNC THUNK EM VEZ DE DISPATCH DIRETO
+        await dispatch(fetchAgendaData(currentMesAno));
       } catch (err) {
         setError('Erro ao carregar agenda do mês');
         console.error('Erro ao carregar agenda:', err);
@@ -138,26 +148,23 @@ const AppContent = () => {
       
       if (liberar) {
         const agendaLiberada = generateAgendaLiberada(currentMesAno);
-        liberarMes(currentMesAno);
+        await liberarMes(currentMesAno);
         
         dispatch(setMesDisponivel({ 
           mesAno: currentMesAno, 
-          disponivel: true,
-          agenda: agendaLiberada
+          disponivel: true
         }));
-        dispatch(loadAgenda({ mesAno: currentMesAno, agenda: agendaLiberada }));
+        
+        // ✅ RECARREGAR DADOS COM ASYNC THUNK
+        await dispatch(fetchAgendaData(currentMesAno));
         
         alert(`✅ Mês liberado para agendamentos! Todos os dias estão disponíveis.`);
       } else {
-        const agendaBloqueada = {
-          ...agenda,
-          meta: { ...agenda.meta, disponivel: false },
-          dias: agenda.dias.map(dia => ({ ...dia, status: 'indisponivel' }))
-        };
-        
-        bloquearMes(currentMesAno);
+        await bloquearMes(currentMesAno);
         dispatch(setMesDisponivel({ mesAno: currentMesAno, disponivel: false }));
-        dispatch(loadAgenda({ mesAno: currentMesAno, agenda: agendaBloqueada }));
+        
+        // ✅ RECARREGAR DADOS COM ASYNC THUNK
+        await dispatch(fetchAgendaData(currentMesAno));
         
         alert(`⏸️ Mês bloqueado para novos agendamentos!`);
       }
@@ -205,23 +212,26 @@ const AppContent = () => {
       // 🆕 ESTRUTURA NOVA PARA ADVANCED BOOKING
       const advancedBooking = {
         ...bookingData,
-        id: Date.now().toString(),
         status: 'pendente',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
       
-      // TODO: Integrar com Firebase quando pronto
-      // await BookingService.createBooking(advancedBooking);
+      // ✅ SALVA NO FIREBASE (PERSISTÊNCIA)
+      const result = await BookingService.createBooking(advancedBooking);
       
-      // Temporariamente: salvar no Redux
-      dispatch(addBooking(advancedBooking));
+      // ✅ SALVA NO REDUX (ATUALIZAÇÃO IMEDIATA DA UI)
+      const bookingWithId = { ...advancedBooking, id: result.id };
+      dispatch(addBooking(bookingWithId));
       dispatch(setSelectedDay(null));
       
+      console.log('✅ Agendamento criado com ID:', result.id);
       alert('✅ Agendamento realizado com sucesso! Aguarde confirmação por email.');
+      
     } catch (error) {
+      console.error('❌ Erro no agendamento:', error);
       setError('Erro ao realizar agendamento');
-      console.error('Erro no agendamento:', error);
+      dispatch(setBookingsError('Erro ao realizar agendamento'));
       alert('❌ Erro ao realizar agendamento. Tente novamente.');
     } finally {
       dispatch(setBookingFormLoading(false));
@@ -235,9 +245,8 @@ const AppContent = () => {
   
   const handleRetry = () => {
     setError(null);
-    // Recarregar dados
-    const agendaData = getAgendaByMesAno(currentMesAno);
-    dispatch(loadAgenda({ mesAno: currentMesAno, agenda: agendaData }));
+    // ✅ RECARREGAR DADOS COM ASYNC THUNK
+    dispatch(fetchAgendaData(currentMesAno));
   };
 
   // ======================
@@ -256,17 +265,17 @@ const AppContent = () => {
     return (
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         {/* Loading State */}
-        {bookingsLoading && (
+        {(agendaLoading || bookingsLoading) && (
           <div className="mb-4">
             <LoadingSpinner text="Carregando dados..." />
           </div>
         )}
 
         {/* Error State */}
-        {error && (
+        {(error || agendaError) && (
           <div className="mb-4">
             <ErrorMessage 
-              message={error} 
+              message={error || agendaError} 
               onRetry={handleRetry}
             />
           </div>
@@ -390,10 +399,23 @@ const AppContent = () => {
    */
   const renderContent = () => {
     // Loading state global
-    if (bookingsLoading && !agenda.dias) {
+    if ((agendaLoading || bookingsLoading) && !agenda.dias) {
       return (
         <div className="flex justify-center items-center min-h-64">
           <LoadingSpinner size="large" text="Carregando sistema..." />
+        </div>
+      );
+    }
+
+    // Error state global
+    if (agendaError && !agenda.dias) {
+      return (
+        <div className="flex justify-center items-center min-h-64">
+          <ErrorMessage 
+            title="Erro ao carregar"
+            message={agendaError}
+            onRetry={handleRetry}
+          />
         </div>
       );
     }
@@ -476,9 +498,19 @@ const App = () => {
             
             {/* 🛡️ ROTAS PROTEGIDAS - ADMIN */}
             <Route 
-              path="/admin" 
+              path="/admin/*" 
               element={
                 <ProtectedRoute requireAdmin={true}>
+                  <AppContent />
+                </ProtectedRoute>
+              } 
+            />
+
+            {/* 👤 ROTA MEUS AGENDAMENTOS */}
+            <Route 
+              path="/meus-agendamentos" 
+              element={
+                <ProtectedRoute>
                   <AppContent />
                 </ProtectedRoute>
               } 
