@@ -1,6 +1,8 @@
 // src/components/admin/Management/CalendarSettings/DaySettingsCard.jsx
 import React, { useState } from 'react';
 import { useCalendarSyncManager } from '../../../../core/managers/CalendarSyncManager';
+import { saveDayConfigToFirebase } from '../../../../services/bookingService';
+
 
 const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
   const { updateDayAndSync } = useCalendarSyncManager();

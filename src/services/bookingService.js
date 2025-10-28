@@ -90,10 +90,77 @@ export class BookingService {
     }
   }
 
-  // ✅ VERIFICAR DISPONIBILIDADE
+  // ✅ VERIFICAR DISPONIBILIDADE (INTEGRADA COM CONFIGURAÇÕES DO ADMIN)
   static async checkAvailability(dateString, time) {
     try {
       const [dia, mesAno] = dateString.split('/');
+      
+      // 1. PRIMEIRO: Verificar configuração do dia/horário no admin
+      const dayConfig = await loadDayConfigFromFirebase(mesAno, parseInt(dia));
+      
+      if (dayConfig && dayConfig.horarios && dayConfig.horarios[time]) {
+        const horarioConfig = dayConfig.horarios[time];
+        
+        // Se o horário está marcado como fechado ou indisponível no admin
+        if (horarioConfig.status === 'fechado' || horarioConfig.status === 'indisponivel') {
+          return {
+            available: false,
+            currentCount: 0,
+            maxLimit: horarioConfig.lotacaoMaxima || 30,
+            remaining: 0,
+            reason: 'Horário fechado pelo administrador'
+          };
+        }
+        
+        // Se o horário está lotado pela configuração do admin
+        if (horarioConfig.status === 'lotado') {
+          return {
+            available: false,
+            currentCount: horarioConfig.lotacaoAtual || 0,
+            maxLimit: horarioConfig.lotacaoMaxima || 30,
+            remaining: 0,
+            reason: 'Horário lotado pelo administrador'
+          };
+        }
+        
+        // Usar a lotação máxima definida pelo admin
+        const maxLimit = horarioConfig.lotacaoMaxima || 30;
+        const currentFromConfig = horarioConfig.lotacaoAtual || 0;
+        
+        // 2. SEGUNDO: Contar agendamentos reais no Firebase
+        const bookingsRef = collection(db, 'bookings');
+        const q = query(
+          bookingsRef,
+          where('data.mesAno', '==', mesAno),
+          where('data.dia', '==', parseInt(dia)),
+          where('data.horario', '==', time),
+          where('status', 'in', ['pendente', 'confirmado'])
+        );
+
+        const querySnapshot = await getDocs(q);
+        let totalPessoasFromBookings = 0;
+        querySnapshot.forEach((doc) => {
+          const booking = doc.data();
+          const adultos = booking.adultos?.length || 0;
+          const criancas = booking.criancas?.length || 0;
+          totalPessoasFromBookings += adultos + criancas;
+        });
+
+        // Usar o MAIOR valor entre configuração do admin e agendamentos reais
+        const currentCount = Math.max(currentFromConfig, totalPessoasFromBookings);
+        const remaining = maxLimit - currentCount;
+        const available = remaining > 0 && horarioConfig.status === 'disponivel';
+
+        return {
+          available,
+          currentCount,
+          maxLimit,
+          remaining,
+          reason: available ? 'Disponível' : 'Lotado'
+        };
+      }
+
+      // 3. FALLBACK: Comportamento original (se não há configuração do admin)
       const bookingsRef = collection(db, 'bookings');
       const q = query(
         bookingsRef,
@@ -112,16 +179,23 @@ export class BookingService {
         totalPessoas += adultos + criancas;
       });
 
-      const maxLimit = 30;
+      const maxLimit = 30; // Default
       return {
         available: totalPessoas < maxLimit,
         currentCount: totalPessoas,
         maxLimit,
-        remaining: maxLimit - totalPessoas
+        remaining: maxLimit - totalPessoas,
+        reason: totalPessoas < maxLimit ? 'Disponível' : 'Lotado'
       };
     } catch (error) {
       console.error('❌ Erro ao verificar disponibilidade:', error);
-      return { available: true, currentCount: 0, maxLimit: 30, remaining: 30, error: true };
+      return { 
+        available: true, 
+        currentCount: 0, 
+        maxLimit: 30, 
+        remaining: 30, 
+        error: true 
+      };
     }
   }
 
