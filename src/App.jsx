@@ -1,502 +1,123 @@
 // src/App.jsx
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useDispatch, useSelector } from 'react-redux';
 
+// 🎯 SOLID MANAGERS & RENDERERS
+import { useAppContentManager } from './core/managers/AppContentManager';
+import { MonthHeaderRenderer } from './core/renderers/MonthHeaderRenderer';
+import { ViewContentRenderer } from './core/renderers/ViewContentRenderer';
 
-// 🎯 CONTEXTS & AUTH IMPORTS
+// 🎯 HANDLERS & CONTROLLERS
+import handleBookingSubmit from './core/handlers/bookingHandler';
+import handleDaySelect from './core/handlers/calendarHandler';
+import handleToggleDisponibilidade from './core/handlers/availabilityHandler';
+import createMonthController from './core/navigation/monthController';
+import createViewManager from './core/navigation/viewManager';
+
+// 🎯 CONTEXTS & COMPONENTS
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
-
-// 🎯 COMPONENTS IMPORTS
 import Layout from './components/common/Layout';
-import MonthNavigation from './components/common/Navigation/MonthNavigation';
-import LoadingSpinner from './components/ui/LoadingSpinner';
-import ErrorMessage from './components/ui/ErrorMessage';
-
-// 🎯 VIEWS IMPORTS
-import VisitorView from './components/views/VisitorView';
-import AdminView from './components/views/AdminView';
-import UserBookingsView from './components/views/UserBookingsView';
 import AdminLogin from './components/auth/AdminLogin';
 
-// 🎯 SERVICES IMPORTS
-import BookingService from './services/bookingService';
+// 🎯 REDUX IMPORTS (apenas para dispatch)
+import { useDispatch } from 'react-redux';
+import { setSelectedDay } from './store/slices/uiSlice';
 
-// 🎯 REDUX IMPORTS - ATUALIZADOS
-import { 
-  setCurrentMesAno, 
-  fetchAgendaData,
-  setMesDisponivel,
-  selectCurrentAgenda,
-  selectCurrentMesAno,
-  selectAgendaLoading,
-  selectAgendaError
-} from './store/slices/agendaSlice';
-import { 
-  addBooking,
-  setBookingsLoading,
-  selectBookingsLoading,
-  selectAllBookings,
-  setBookingsError
-} from './store/slices/bookingSlice';
-import { 
-  setCurrentView, 
-  setSelectedDay, 
-  setBookingFormLoading,
-  selectCurrentView,
-  selectSelectedDay,
-  selectBookingFormLoading
-} from './store/slices/uiSlice';
-
-// 🎯 UTILS IMPORTS
-import { 
-  getMesAnoAtual, 
-  getProximoMes, 
-  getMesAnterior, 
-  getNomeMes, 
-  liberarMes,
-  bloquearMes,
-  generateAgendaLiberada
-} from './utils/initialData';
-
-// 🎯 COMPONENTE PRINCIPAL COM REDUX
+/**
+ * AppContent SOLID - Apenas composição
+ */
 const AppContent = () => {
-  // ======================
-  // 🎯 HOOKS & SELECTORS
-  // ======================
-  const dispatch = useDispatch();
+  const { state, actions } = useAppContentManager();
   const { user, isAdmin } = useAuth();
+  const dispatch = useDispatch();
+
+  // 🎯 CONTROLLERS
+  const monthController = createMonthController({ 
+    dispatch, 
+    currentMesAno: state.currentMesAno 
+  });
   
-  // Redux Selectors
-  const currentView = useSelector(selectCurrentView);
-  const selectedDay = useSelector(selectSelectedDay);
-  const bookingFormLoading = useSelector(selectBookingFormLoading);
-  const currentMesAno = useSelector(selectCurrentMesAno);
-  const agenda = useSelector(selectCurrentAgenda);
-  const agendaLoading = useSelector(selectAgendaLoading);
-  const agendaError = useSelector(selectAgendaError);
-  const bookingsLoading = useSelector(selectBookingsLoading);
-  const allBookings = useSelector(selectAllBookings);
+  const viewManager = createViewManager({ 
+    dispatch, 
+    isAdmin, 
+    navigate: null 
+  });
 
-  // Local State
-  const [error, setError] = useState(null);
+  // 🎯 HANDLERS
+  const onBookingSubmit = handleBookingSubmit({ 
+    dispatch, 
+    setError: actions.setError, 
+    setSelectedDay: (d) => dispatch(setSelectedDay(d))
+  });
 
-  // ======================
-  // 🎯 EFFECTS
-  // ======================
+  const onDaySelect = handleDaySelect({ 
+    dispatch, 
+    currentView: state.currentView, 
+    alertFn: alert 
+  });
+
+  const toggleDisponibilidade = handleToggleDisponibilidade({ 
+    dispatch, 
+    currentMesAno: state.currentMesAno, 
+    setError: actions.setError 
+  });
+
+  // 🎯 NAVEGAÇÃO
+  const handleProximoMes = () => monthController.goNext();
+  const handleMesAnterior = () => monthController.goPrev();
+  const handleMesAtual = () => monthController.goCurrent();
   
-  /**
-   * Carrega agenda quando o mês muda
-   */
-  useEffect(() => {
-    const loadAgendaData = async () => {
-      try {
-        setError(null);
-        // ✅ USAR ASYNC THUNK EM VEZ DE DISPATCH DIRETO
-        await dispatch(fetchAgendaData(currentMesAno));
-      } catch (err) {
-        setError('Erro ao carregar agenda do mês');
-        console.error('Erro ao carregar agenda:', err);
-      }
-    };
-
-    loadAgendaData();
-  }, [dispatch, currentMesAno]);
-
-  // ======================
-  // 🎯 HANDLERS - NAVEGAÇÃO
-  // ======================
-  
-  const handleProximoMes = () => {
-    const proximoMes = getProximoMes(currentMesAno);
-    dispatch(setCurrentMesAno(proximoMes));
-  };
-
-  const handleMesAnterior = () => {
-    const mesAnterior = getMesAnterior(currentMesAno);
-    dispatch(setCurrentMesAno(mesAnterior));
-  };
-
-  const handleMesAtual = () => {
-    const mesAtual = getMesAnoAtual();
-    dispatch(setCurrentMesAno(mesAtual));
-  };
-
   const handleViewChange = (view) => {
-    // Se tentar acessar admin sem estar logado, redireciona para login
+    const res = viewManager.changeTo(view);
+    if (!res.ok) return;
+    
     if (view === 'admin' && !user) {
       window.location.href = '/admin/login';
-      return;
-    }
-    
-    dispatch(setCurrentView(view));
-    dispatch(setSelectedDay(null));
-    setError(null);
-  };
-
-  // ======================
-  // 🎯 HANDLERS - AGENDA
-  // ======================
-  
-  /**
-   * Controla disponibilidade do mês (liberar/bloquear)
-   */
-  const handleToggleDisponibilidade = async (liberar) => {
-    try {
-      setError(null);
-      
-      if (liberar) {
-        const agendaLiberada = generateAgendaLiberada(currentMesAno);
-        await liberarMes(currentMesAno);
-        
-        dispatch(setMesDisponivel({ 
-          mesAno: currentMesAno, 
-          disponivel: true
-        }));
-        
-        // ✅ RECARREGAR DADOS COM ASYNC THUNK
-        await dispatch(fetchAgendaData(currentMesAno));
-        
-        alert(`✅ Mês liberado para agendamentos! Todos os dias estão disponíveis.`);
-      } else {
-        await bloquearMes(currentMesAno);
-        dispatch(setMesDisponivel({ mesAno: currentMesAno, disponivel: false }));
-        
-        // ✅ RECARREGAR DADOS COM ASYNC THUNK
-        await dispatch(fetchAgendaData(currentMesAno));
-        
-        alert(`⏸️ Mês bloqueado para novos agendamentos!`);
-      }
-    } catch (error) {
-      setError('Erro ao alterar disponibilidade do mês');
-      console.error('Erro ao alterar disponibilidade:', error);
     }
   };
 
-  // ======================
-  // 🎯 HANDLERS - CALENDÁRIO
-  // ======================
-  
-  /**
-   * Gerencia clique nos dias do calendário
-   */
-  const handleDaySelect = (day) => {
-    if (currentView === 'visitante' && day.status === 'disponivel') {
-      dispatch(setSelectedDay(day));
-    } else if (currentView === 'visitante') {
-      // Feedback para dias não disponíveis
-      const messages = {
-        indisponivel: '🔒 Este mês não está disponível para agendamentos.',
-        fechado: '🚫 Este dia está fechado.',
-        lotado: '📦 Este dia está lotado.'
-      };
-      alert(messages[day.status] || 'Dia não disponível para agendamento.');
-    }
-  };
-
-  // ======================
-  // 🎯 HANDLERS - AGENDAMENTOS
-  // ======================
-  
-  /**
-   * Processa submissão do formulário de agendamento
-   */
-  const handleBookingSubmit = async (bookingData) => {
-    dispatch(setBookingFormLoading(true));
-    dispatch(setBookingsLoading(true));
-    
-    try {
-      setError(null);
-      
-      // 🆕 ESTRUTURA NOVA PARA ADVANCED BOOKING
-      const advancedBooking = {
-        ...bookingData,
-        status: 'pendente',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      
-      // ✅ SALVA NO FIREBASE (PERSISTÊNCIA)
-      const result = await BookingService.createBooking(advancedBooking);
-      
-      // ✅ SALVA NO REDUX (ATUALIZAÇÃO IMEDIATA DA UI)
-      const bookingWithId = { ...advancedBooking, id: result.id };
-      dispatch(addBooking(bookingWithId));
-      dispatch(setSelectedDay(null));
-      
-      console.log('✅ Agendamento criado com ID:', result.id);
-      alert('✅ Agendamento realizado com sucesso! Aguarde confirmação por email.');
-      
-    } catch (error) {
-      console.error('❌ Erro no agendamento:', error);
-      setError('Erro ao realizar agendamento');
-      dispatch(setBookingsError('Erro ao realizar agendamento'));
-      alert('❌ Erro ao realizar agendamento. Tente novamente.');
-    } finally {
-      dispatch(setBookingFormLoading(false));
-      dispatch(setBookingsLoading(false));
-    }
-  };
-
-  // ======================
-  // 🎯 HANDLERS - ERROR & RETRY
-  // ======================
-  
-  const handleRetry = () => {
-    setError(null);
-    // ✅ RECARREGAR DADOS COM ASYNC THUNK
-    dispatch(fetchAgendaData(currentMesAno));
-  };
-
-  // ======================
-  // 🎯 RENDER FUNCTIONS
-  // ======================
-  
-  /**
-   * Renderiza header do mês com navegação e controles
-   */
-  const renderMonthHeader = () => {
-    const [mes, ano] = currentMesAno.split('-').map(Number);
-    const nomeMes = getNomeMes(mes);
-    const isCurrentMonth = currentMesAno === getMesAnoAtual();
-    const mesDisponivel = agenda.meta?.disponivel || false;
-
-    return (
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
-        {/* Loading State */}
-        {(agendaLoading || bookingsLoading) && (
-          <div className="mb-4">
-            <LoadingSpinner text="Carregando dados..." />
-          </div>
-        )}
-
-        {/* Error State */}
-        {(error || agendaError) && (
-          <div className="mb-4">
-            <ErrorMessage 
-              message={error || agendaError} 
-              onRetry={handleRetry}
-            />
-          </div>
-        )}
-
-        {/* Navegação do Mês */}
-        <MonthNavigation
-          currentMesAno={currentMesAno}
-          onMesAnterior={handleMesAnterior}
-          onProximoMes={handleProximoMes}
-          onMesAtual={handleMesAtual}
-        />
-
-        {/* Controles de Admin - Só mostra se for admin logado */}
-        {currentView === 'admin' && isAdmin && (
-          <AdminAvailabilityControls 
-            mesDisponivel={mesDisponivel}
-            agenda={agenda}
-            nomeMes={nomeMes}
-            ano={ano}
-            onToggleDisponibilidade={handleToggleDisponibilidade}
-          />
-        )}
-
-        {/* Status para Visitante */}
-        {currentView === 'visitante' && mesDisponivel && agenda.dias && (
-          <VisitorAvailabilityStatus 
-            agenda={agenda}
-            nomeMes={nomeMes}
-            ano={ano}
-          />
-        )}
-      </div>
-    );
-  };
-
-  /**
-   * Componente interno: Controles de disponibilidade do admin
-   */
-  const AdminAvailabilityControls = ({ mesDisponivel, agenda, nomeMes, ano, onToggleDisponibilidade }) => (
-    <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-      <div>
-        <StatusBadge disponivel={mesDisponivel} />
-        <p className="text-sm text-gray-600 mt-1">
-          {mesDisponivel 
-            ? 'Agendamentos abertos para este mês' 
-            : 'Agendamentos fechados para este mês'
-          }
-        </p>
-        
-        {mesDisponivel && agenda.dias && (
-          <p className="text-xs text-green-600 mt-1">
-            📊 {agenda.dias.filter(d => d.status === 'disponivel').length} dias disponíveis
-          </p>
-        )}
-      </div>
-      
-      <div className="space-x-2">
-        {!mesDisponivel ? (
-          <button
-            onClick={() => onToggleDisponibilidade(true)}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors font-semibold"
-          >
-            ✅ Liberar Mês
-          </button>
-        ) : (
-          <button
-            onClick={() => onToggleDisponibilidade(false)}
-            className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg transition-colors font-semibold"
-          >
-            ⏸️ Bloquear Mês
-          </button>
-        )}
-      </div>
-    </div>
-  );
-
-  /**
-   * Componente interno: Status de disponibilidade para visitante
-   */
-  const VisitorAvailabilityStatus = ({ agenda, nomeMes, ano }) => (
-    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center">
-          <span className="text-green-600 text-lg mr-2">✅</span>
-          <div>
-            <p className="text-green-800 font-semibold">
-              Mês Liberado para Agendamentos
-            </p>
-            <p className="text-green-700 text-sm">
-              {agenda.dias.filter(d => d.status === 'disponivel').length} dias disponíveis - 
-              Clique em um dia verde para reservar.
-            </p>
-          </div>
-        </div>
-        <div className="text-green-600 text-sm font-semibold">
-          🟢 DISPONÍVEL
-        </div>
-      </div>
-    </div>
-  );
-
-  /**
-   * Componente interno: Badge de status
-   */
-  const StatusBadge = ({ disponivel }) => (
-    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-      disponivel 
-        ? 'bg-green-100 text-green-800 border border-green-200' 
-        : 'bg-red-100 text-red-800 border border-red-200'
-    }`}>
-      <div className={`w-2 h-2 rounded-full mr-2 ${
-        disponivel ? 'bg-green-500' : 'bg-red-500'
-      }`}></div>
-      {disponivel ? 'Mês Liberado' : 'Mês Bloqueado'}
-    </span>
-  );
-
-  /**
-   * Renderiza conteúdo principal baseado na view atual
-   */
-  const renderContent = () => {
-    // Loading state global
-    if ((agendaLoading || bookingsLoading) && !agenda.dias) {
-      return (
-        <div className="flex justify-center items-center min-h-64">
-          <LoadingSpinner size="large" text="Carregando sistema..." />
-        </div>
-      );
-    }
-
-    // Error state global
-    if (agendaError && !agenda.dias) {
-      return (
-        <div className="flex justify-center items-center min-h-64">
-          <ErrorMessage 
-            title="Erro ao carregar"
-            message={agendaError}
-            onRetry={handleRetry}
-          />
-        </div>
-      );
-    }
-
-    // Router de views
-    switch (currentView) {
-      case 'visitante':
-        return (
-          <>
-            {renderMonthHeader()}
-            <VisitorView
-              currentMesAno={currentMesAno}
-              agenda={agenda}
-              selectedDay={selectedDay}
-              bookingFormLoading={bookingFormLoading}
-              onBookingSubmit={handleBookingSubmit}
-              onDaySelect={handleDaySelect}
-            />
-          </>
-        );
-
-      case 'admin':
-        // Se não for admin, não mostra o conteúdo admin
-        if (!isAdmin) {
-          return (
-            <div className="text-center py-12">
-              <h2 className="text-2xl font-bold text-red-600 mb-4">Acesso Negado</h2>
-              <p className="text-gray-600">Você não tem permissão para acessar o painel administrativo.</p>
-            </div>
-          );
-        }
-        return (
-          <>
-            {renderMonthHeader()}
-            <AdminView
-              currentMesAno={currentMesAno}
-              agenda={agenda}
-              onToggleDisponibilidade={handleToggleDisponibilidade}
-            />
-          </>
-        );
-
-      case 'meus-agendamentos':
-        return <UserBookingsView mesAno={currentMesAno} />;
-
-      default:
-        return (
-          <ErrorMessage 
-            title="View não encontrada" 
-            message="A view selecionada não existe."
-            onRetry={() => handleViewChange('visitante')}
-          />
-        );
-    }
-  };
-
-  // ======================
-  // 🎯 MAIN RENDER
-  // ======================
-  
   return (
-    <Layout currentView={currentView} onViewChange={handleViewChange}>
-      {renderContent()}
+    <Layout currentView={state.currentView} onViewChange={handleViewChange}>
+      {/* Month Header */}
+      <MonthHeaderRenderer
+        currentMesAno={state.currentMesAno}
+        agenda={state.agenda}
+        agendaLoading={state.agendaLoading}
+        bookingsLoading={state.bookingsLoading}
+        error={state.error}
+        agendaError={state.agendaError}
+        currentView={state.currentView}
+        isAdmin={isAdmin}
+        onMesAnterior={handleMesAnterior}
+        onProximoMes={handleProximoMes}
+        onMesAtual={handleMesAtual}
+        onToggleDisponibilidade={toggleDisponibilidade}
+        onRetry={actions.handleRetry}
+      />
+
+      {/* View Content */}
+      <ViewContentRenderer
+        state={state}
+        onBookingSubmit={onBookingSubmit}
+        onDaySelect={onDaySelect}
+        onToggleDisponibilidade={toggleDisponibilidade}
+      />
     </Layout>
   );
 };
 
-// 🎯 COMPONENTE APP PRINCIPAL COM ROTAS
+/**
+ * App Principal - Apenas roteamento
+ */
 const App = () => {
   return (
     <AuthProvider>
       <Router>
         <div className="App">
           <Routes>
-            {/* 🏠 ROTA PÚBLICA PRINCIPAL */}
             <Route path="/" element={<AppContent />} />
-            
-            {/* 🔐 ROTA DE LOGIN ADMIN */}
             <Route path="/admin/login" element={<AdminLogin />} />
-            
-            {/* 🛡️ ROTAS PROTEGIDAS - ADMIN */}
             <Route 
               path="/admin/*" 
               element={
@@ -505,8 +126,6 @@ const App = () => {
                 </ProtectedRoute>
               } 
             />
-
-            {/* 👤 ROTA MEUS AGENDAMENTOS */}
             <Route 
               path="/meus-agendamentos" 
               element={
@@ -515,8 +134,6 @@ const App = () => {
                 </ProtectedRoute>
               } 
             />
-            
-            {/* 🔄 ROTA FALLBACK */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

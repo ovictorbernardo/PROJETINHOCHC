@@ -3,8 +3,8 @@ import React from 'react';
 
 const AdminTabs = ({ activeTab, onTabChange }) => {
   const tabs = [
-    { id: 'agenda', label: '📅 Configurar Agenda', icon: '📅' },
-    { id: 'reservas', label: '📋 Gerenciar Reservas', icon: '📋' }
+    { id: 'agenda', label: ' Configurar Agenda', icon: '📅' },
+    { id: 'reservas', label: ' Gerenciar Reservas', icon: '📋' }
   ];
 
   return (

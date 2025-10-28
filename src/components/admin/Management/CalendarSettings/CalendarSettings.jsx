@@ -1,30 +1,60 @@
 // src/components/admin/Management/CalendarSettings/CalendarSettings.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useDispatch } from 'react-redux';
 import Calendar from '../../../common/Calendar/Calendar';
 import DaySettingsCard from './DaySettingsCard';
+import { useCalendarSyncManager } from '../../../../core/managers/CalendarSyncManager';
 
 const CalendarSettings = ({ agenda, mesAno }) => {
+  const dispatch = useDispatch();
+  const { updateDayAndSync } = useCalendarSyncManager();
+  
   const [dias, setDias] = useState(agenda.dias || []);
 
-  const handleUpdateDay = (dia, updates) => {
-    const updatedDias = dias.map(d => 
-      d.dia === dia ? { ...d, ...updates } : d
-    );
-    setDias(updatedDias);
-    // TODO: Integrar com Redux/Firebase
-    console.log('Dia atualizado:', dia, updates);
+  // Sincroniza quando a agenda muda
+  useEffect(() => {
+    setDias(agenda.dias || []);
+  }, [agenda]);
+
+  /**
+   * Atualiza um dia e sincroniza com o sistema
+   */
+  const handleUpdateDay = async (diaNumero, updates) => {
+    try {
+      const diaIndex = dias.findIndex(d => d.dia === diaNumero);
+      if (diaIndex === -1) return false;
+
+      // Atualização local otimista
+      const updatedDias = [...dias];
+      updatedDias[diaIndex] = { 
+        ...updatedDias[diaIndex], 
+        ...updates 
+      };
+      setDias(updatedDias);
+
+      // 🔄 SINCRONIZAÇÃO
+      const result = await updateDayAndSync(diaIndex, updates);
+      return result.success;
+
+    } catch (error) {
+      console.error('Erro ao atualizar dia:', error);
+      // Reverte para o estado original
+      setDias(agenda.dias || []);
+      return false;
+    }
   };
 
   const handleDaySelect = (day) => {
-    // No modo admin, o clique no calendário pode abrir edição rápida
+    // Pode implementar edição rápida no futuro
     console.log('Dia selecionado para edição:', day);
   };
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-4">Configuração da Agenda</h3>
+      <h3 className="text-lg font-semibold mb-4">Configuração da Agenda - {mesAno}</h3>
       <p className="text-gray-600 mb-4">
-        Visualize e gerencie a disponibilidade dos dias deste mês.
+        Configure a disponibilidade por horário para cada dia. 
+        <strong> Alterações são sincronizadas automaticamente.</strong>
       </p>
       
       {/* Calendário de Visualização */}
@@ -39,13 +69,14 @@ const CalendarSettings = ({ agenda, mesAno }) => {
 
       {/* Grid de Configuração Individual */}
       <div>
-        <h4 className="text-md font-semibold mb-3">Configuração Individual dos Dias</h4>
-        <div className="grid grid-cols-7 gap-2">
+        <h4 className="text-md font-semibold mb-3">Configuração por Dia e Horário</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {dias.map(day => (
             <DaySettingsCard
               key={day.dia}
               day={day}
               onUpdateDay={handleUpdateDay}
+              mesAno={mesAno}
             />
           ))}
         </div>

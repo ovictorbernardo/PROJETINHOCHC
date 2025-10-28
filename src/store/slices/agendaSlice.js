@@ -128,7 +128,7 @@ export const {
   clearError
 } = agendaSlice.actions;
 
-// ✅ SELECTORS SIMPLES - SEM MEMOIZAÇÃO COMPLEXA
+// ✅ SELECTORS
 export const selectCurrentAgenda = (state) => 
   state.agenda.agendas[state.agenda.currentMesAno] || { dias: [], meta: {} };
 

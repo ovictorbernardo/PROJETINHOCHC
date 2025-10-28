@@ -1,27 +1,33 @@
-import { setMesDisponivel, fetchAgendaData } from '../../store/slices/agendaSlice';
-import { bloquearMes, liberarMes } from '../../utils/initialData';
+// src/core/handlers/availabilityHandler.js - CORRIGIDO
+import { setMesDisponivel } from '../../store/slices/agendaSlice.js';
+import { toggleMonthAvailability } from '../../domain/usecases/toggleMonthAvailability.js';
+import { loadAgendaIntegration } from '../integration/agendaIntegration.js';
 
-export const handleToggleDisponibilidade = ({ dispatch, currentMesAno, setError }) => {
+/**
+ * Handler para toggle de disponibilidade - CORRIGIDO
+ */
+const handleToggleDisponibilidade = ({ dispatch, currentMesAno, setError }) => {
   return async (liberar) => {
     try {
-      if (setError) setError(null);
+      setError(null);
 
-      if (liberar) {
-        await liberarMes(currentMesAno);
-        dispatch(setMesDisponivel({ mesAno: currentMesAno, disponivel: true }));
-      } else {
-        await bloquearMes(currentMesAno);
-        dispatch(setMesDisponivel({ mesAno: currentMesAno, disponivel: false }));
-      }
+      // 🎯 DOMAIN LAYER
+      const result = await toggleMonthAvailability(currentMesAno, liberar);
+      
+      // 🎯 REDUX LAYER
+      dispatch(setMesDisponivel({ mesAno: currentMesAno, disponivel: result.disponivel }));
 
-      await dispatch(fetchAgendaData(currentMesAno));
-      alert(liberar ? '✅ Mês liberado para agendamentos!' : '⏸️ Mês bloqueado para novos agendamentos!');
+      // 🎯 INTEGRATION LAYER - Nome correto
+      await loadAgendaIntegration(currentMesAno);
+
+      alert(result.disponivel ? '✅ Mês liberado!' : '⏸️ Mês bloqueado!');
       return { success: true };
     } catch (err) {
-      console.error('Erro ao alterar disponibilidade:', err);
-      if (setError) setError('Erro ao alterar disponibilidade do mês');
+      console.error('❌ Handler Error - availability:', err);
+      setError('Erro ao alterar disponibilidade do mês');
       return { success: false, error: err };
     }
   };
 };
+
 export default handleToggleDisponibilidade;
