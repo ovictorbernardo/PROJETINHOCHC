@@ -1,11 +1,13 @@
 // src/components/admin/Management/CalendarSettings/DaySettingsCard.jsx
 import React, { useState } from 'react';
+import { useCalendarSyncManager } from '../../../../core/managers/CalendarSyncManager';
 
 const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
+  const { updateDayAndSync } = useCalendarSyncManager();
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   
-  // Estado para controle dos horários
+  // Estado para controle dos horários CUSTOMIZÁVEIS
   const [horarios, setHorarios] = useState(day.horarios || {});
   const [observacao, setObservacao] = useState(day.observacao || '');
 
@@ -17,20 +19,61 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
     { value: 'indisponivel', label: 'Indisponível', color: 'bg-yellow-100 border-yellow-500', icon: '🟡' }
   ];
 
-  // Horários padrão do sistema
-  const horariosPadrao = ['08:00', '10:00', '14:00'];
+  // Horários padrão iniciais se não existirem
+  const horariosPadrao = {
+    '08:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10 },
+    '10:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10 },
+    '14:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10 }
+  };
 
   /**
-   * Atualiza o status de um horário específico
+   * Inicia edição dos horários customizáveis
    */
-  const handleHorarioChange = (horarioKey, novoStatus) => {
+  const iniciarEdicaoHorarios = () => {
+    setHorarios(day.horarios || horariosPadrao);
+    setIsEditing(true);
+  };
+
+  /**
+   * Atualiza um horário específico
+   */
+  const handleHorarioChange = (horarioKey, campo, valor) => {
     setHorarios(prev => ({
       ...prev,
       [horarioKey]: {
         ...prev[horarioKey],
-        status: novoStatus
+        [campo]: valor
       }
     }));
+  };
+
+  /**
+   * Adiciona novo horário customizado
+   */
+  const adicionarHorario = () => {
+    const novoHorarioKey = prompt('Digite o novo horário (ex: 09:00):');
+    if (!novoHorarioKey || !/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(novoHorarioKey)) {
+      alert('Horário inválido! Use formato HH:MM');
+      return;
+    }
+
+    setHorarios(prev => ({
+      ...prev,
+      [novoHorarioKey]: { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10 }
+    }));
+  };
+
+  /**
+   * Remove horário
+   */
+  const removerHorario = (horarioKey) => {
+    if (Object.keys(horarios).length <= 1) {
+      alert('É necessário ter pelo menos 1 horário');
+      return;
+    }
+    
+    const { [horarioKey]: removido, ...resto } = horarios;
+    setHorarios(resto);
   };
 
   /**
@@ -50,7 +93,15 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
     return 'indisponivel';
   };
 
+  /**
+   * Salva os horários customizados
+   */
   const handleSave = async () => {
+    if (Object.keys(horarios).length === 0) {
+      alert('Adicione pelo menos 1 horário');
+      return;
+    }
+
     setSaving(true);
     try {
       // Prepara os dados atualizados
@@ -60,12 +111,19 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
         status: getStatusGeral() // Status calculado automaticamente
       };
 
-      const success = await onUpdateDay(day.dia, updates);
-      if (success) {
+      // 🔄 SINCRONIZAÇÃO COM O SISTEMA
+      const diaIndex = parseInt(day.dia) - 1; // Assumindo que day.dia é o número do dia
+      const result = await updateDayAndSync(diaIndex, updates);
+      
+      if (result.success) {
         setIsEditing(false);
+        if (onUpdateDay) {
+          onUpdateDay(day.dia, updates);
+        }
       }
     } catch (error) {
       console.error('Erro ao salvar:', error);
+      alert('Erro ao salvar horários');
     } finally {
       setSaving(false);
     }
@@ -95,25 +153,28 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
             <span className="text-sm font-medium capitalize">{currentStatus?.label}</span>
           </div>
           
-          {/* Mini status dos horários */}
+          {/* Mini status dos horários CUSTOMIZÁVEIS */}
           <div className="space-y-1 mb-2">
-            {horariosPadrao.map(horarioKey => {
-              const horario = horarios[horarioKey];
-              const statusHorario = horario?.status || 'indisponivel';
-              const statusInfo = statusOptions.find(opt => opt.value === statusHorario);
+            {Object.entries(horarios).map(([horarioKey, horario]) => {
+              const statusInfo = statusOptions.find(opt => opt.value === horario.status);
               
               return (
                 <div key={horarioKey} className="flex justify-between items-center text-xs">
                   <span>{horarioKey}</span>
-                  <span className={`
-                    px-1 rounded text-white text-xs
-                    ${statusHorario === 'disponivel' ? 'bg-green-500' : ''}
-                    ${statusHorario === 'lotado' ? 'bg-red-500' : ''}
-                    ${statusHorario === 'fechado' ? 'bg-gray-500' : ''}
-                    ${statusHorario === 'indisponivel' ? 'bg-yellow-500' : ''}
-                  `}>
-                    {statusInfo?.icon}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className={`
+                      px-1 rounded text-white text-xs
+                      ${horario.status === 'disponivel' ? 'bg-green-500' : ''}
+                      ${horario.status === 'lotado' ? 'bg-red-500' : ''}
+                      ${horario.status === 'fechado' ? 'bg-gray-500' : ''}
+                      ${horario.status === 'indisponivel' ? 'bg-yellow-500' : ''}
+                    `}>
+                      {statusInfo?.icon}
+                    </span>
+                    <span className="text-gray-500 text-xs">
+                      ({horario.lotacaoAtual}/{horario.lotacaoMaxima})
+                    </span>
+                  </div>
                 </div>
               );
             })}
@@ -126,43 +187,93 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
           )}
           
           <button
-            onClick={() => setIsEditing(true)}
+            onClick={iniciarEdicaoHorarios}
             disabled={saving}
             className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-3 py-1 rounded text-sm transition-colors"
           >
-            {saving ? 'Salvando...' : 'Editar'}
+            ⚙️ Horários
           </button>
         </div>
       ) : (
-        // MODO EDIÇÃO
+        // MODO EDIÇÃO DE HORÁRIOS CUSTOMIZÁVEIS
         <div className="space-y-3">
           <div className="font-bold text-center text-lg">{day.dia}</div>
 
-          {/* Controle de horários */}
-          <div className="space-y-2">
-            <label className="block text-xs font-semibold text-gray-700">Horários:</label>
-            {horariosPadrao.map(horarioKey => {
-              const horario = horarios[horarioKey] || { status: 'indisponivel' };
-              
-              return (
-                <div key={horarioKey} className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">{horarioKey}</span>
-                  <select
-                    value={horario.status}
-                    onChange={(e) => handleHorarioChange(horarioKey, e.target.value)}
-                    disabled={saving}
-                    className="text-xs p-1 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+          {/* Lista de horários editáveis */}
+          <div className="space-y-2 max-h-40 overflow-y-auto">
+            <label className="block text-xs font-semibold text-gray-700">Horários Customizáveis:</label>
+            {Object.entries(horarios).map(([horarioKey, horario]) => (
+              <div key={horarioKey} className="border rounded p-2 bg-white">
+                <div className="flex justify-between items-center mb-2">
+                  <input
+                    type="time"
+                    value={horarioKey}
+                    onChange={(e) => {
+                      const novoKey = e.target.value;
+                      const { [horarioKey]: antigo, ...resto } = horarios;
+                      setHorarios({
+                        ...resto,
+                        [novoKey]: horario
+                      });
+                    }}
+                    className="text-sm border rounded px-1 py-0.5"
+                  />
+                  <button
+                    onClick={() => removerHorario(horarioKey)}
+                    className="text-red-600 hover:text-red-800 text-xs"
+                    disabled={Object.keys(horarios).length <= 1}
                   >
-                    {statusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.icon}
-                      </option>
-                    ))}
-                  </select>
+                    ❌
+                  </button>
                 </div>
-              );
-            })}
+                
+                <select
+                  value={horario.status}
+                  onChange={(e) => handleHorarioChange(horarioKey, 'status', e.target.value)}
+                  className="w-full text-xs border rounded p-1 mb-1"
+                >
+                  {statusOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.icon} {option.label}
+                    </option>
+                  ))}
+                </select>
+                
+                <div className="grid grid-cols-2 gap-1 text-xs">
+                  <div>
+                    <label>Lot. Máx:</label>
+                    <input
+                      type="number"
+                      value={horario.lotacaoMaxima}
+                      onChange={(e) => handleHorarioChange(horarioKey, 'lotacaoMaxima', parseInt(e.target.value))}
+                      className="w-full border rounded px-1"
+                      min="1"
+                      max="50"
+                    />
+                  </div>
+                  <div>
+                    <label>Ocupadas:</label>
+                    <input
+                      type="number"
+                      value={horario.lotacaoAtual}
+                      onChange={(e) => handleHorarioChange(horarioKey, 'lotacaoAtual', parseInt(e.target.value))}
+                      className="w-full border rounded px-1"
+                      min="0"
+                      max={horario.lotacaoMaxima}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
+
+          {/* Botão para adicionar horário */}
+          <button
+            onClick={adicionarHorario}
+            className="w-full text-xs bg-green-600 hover:bg-green-700 text-white py-1 rounded"
+          >
+            ➕ Adicionar Horário
+          </button>
 
           {/* Observação */}
           <div>
