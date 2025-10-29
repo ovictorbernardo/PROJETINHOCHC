@@ -1,13 +1,13 @@
-// src/components/admin/Management/CalendarSettings/DaySettingsCard.jsx
-import React, { useState } from 'react';
+// src/components/admin/Management/CalendarSettings/DaySettingsCard.jsx - ATUALIZADO COM DEBUG
+import React, { useState, useEffect } from 'react';
 import { useCalendarSyncManager } from '../../../../core/managers/CalendarSyncManager';
-import { saveDayConfigToFirebase } from '../../../../services/bookingService';
-
+import { saveDayConfigToFirebase, BookingService } from '../../../../services/bookingService';
 
 const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
   const { updateDayAndSync } = useCalendarSyncManager();
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('');
   
   // Estado para controle dos horários CUSTOMIZÁVEIS
   const [horarios, setHorarios] = useState(day.horarios || {});
@@ -23,23 +23,74 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
 
   // Horários padrão iniciais se não existirem
   const horariosPadrao = {
-    '08:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10 },
-    '10:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10 },
-    '14:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10 }
+    '08:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10, disponivel: true },
+    '10:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10, disponivel: true },
+    '14:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10, disponivel: true },
+    '16:00': { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10, disponivel: true }
+  };
+
+  // 🆕 CARREGAR DADOS REAIS DE AGENDAMENTOS
+  useEffect(() => {
+    if (isEditing) {
+      loadRealBookingData();
+    }
+  }, [isEditing, day.dia, mesAno]);
+
+  const loadRealBookingData = async () => {
+    try {
+      setSyncStatus('Sincronizando com agendamentos reais...');
+      
+      const updatedHorarios = { ...horarios };
+      let hasChanges = false;
+
+      // 🎯 PARA CADA HORÁRIO, BUSCAR AGENDAMENTOS REAIS
+      for (const [timeKey, horarioConfig] of Object.entries(updatedHorarios)) {
+        const realBookingsCount = await BookingService.countRealBookingsForTimeSlot(
+          mesAno, 
+          parseInt(day.dia), 
+          timeKey
+        );
+
+        // 🎯 ATUALIZAR SE HOUVER DIFERENÇA
+        if (realBookingsCount !== horarioConfig.lotacaoAtual) {
+          updatedHorarios[timeKey] = {
+            ...horarioConfig,
+            lotacaoAtual: realBookingsCount,
+            // 🎯 ATUALIZAR STATUS AUTOMATICAMENTE SE NECESSÁRIO
+            status: realBookingsCount >= horarioConfig.lotacaoMaxima ? 'lotado' : horarioConfig.status
+          };
+          hasChanges = true;
+        }
+      }
+
+      if (hasChanges) {
+        setHorarios(updatedHorarios);
+        setSyncStatus('Sincronizado com agendamentos reais ✅');
+      } else {
+        setSyncStatus('Dados já sincronizados ✅');
+      }
+    } catch (error) {
+      console.error('Erro ao sincronizar dados reais:', error);
+      setSyncStatus('Erro na sincronização ❌');
+    }
   };
 
   /**
    * Inicia edição dos horários customizáveis
    */
   const iniciarEdicaoHorarios = () => {
+    console.log('🔍 [DEBUG] Iniciando edição para dia:', day.dia);
     setHorarios(day.horarios || horariosPadrao);
+    setObservacao(day.observacao || '');
     setIsEditing(true);
+    setSyncStatus('Pronto para editar');
   };
 
   /**
    * Atualiza um horário específico
    */
   const handleHorarioChange = (horarioKey, campo, valor) => {
+    console.log('🔍 [DEBUG] Alterando horário:', { horarioKey, campo, valor });
     setHorarios(prev => ({
       ...prev,
       [horarioKey]: {
@@ -55,13 +106,24 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
   const adicionarHorario = () => {
     const novoHorarioKey = prompt('Digite o novo horário (ex: 09:00):');
     if (!novoHorarioKey || !/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(novoHorarioKey)) {
-      alert('Horário inválido! Use formato HH:MM');
+      alert('Horário inválido! Use formato HH:MM (ex: 09:00, 14:30)');
       return;
     }
 
+    if (horarios[novoHorarioKey]) {
+      alert('Este horário já existe!');
+      return;
+    }
+
+    console.log('🔍 [DEBUG] Adicionando novo horário:', novoHorarioKey);
     setHorarios(prev => ({
       ...prev,
-      [novoHorarioKey]: { status: 'disponivel', lotacaoAtual: 0, lotacaoMaxima: 10 }
+      [novoHorarioKey]: { 
+        status: 'disponivel', 
+        lotacaoAtual: 0, 
+        lotacaoMaxima: 10,
+        disponivel: true
+      }
     }));
   };
 
@@ -74,6 +136,7 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
       return;
     }
     
+    console.log('🔍 [DEBUG] Removendo horário:', horarioKey);
     const { [horarioKey]: removido, ...resto } = horarios;
     setHorarios(resto);
   };
@@ -105,36 +168,80 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
     }
 
     setSaving(true);
+    setSyncStatus('Salvando configurações...');
+    
+    // 🎯 LOG DE DEBUG - VER O QUE ESTÁ SENDO SALVO
+    console.log('🔍 [DEBUG DaySettingsCard] Dados a serem salvos:', {
+      mesAno,
+      dia: day.dia,
+      horarios,
+      observacao,
+      statusGeral: getStatusGeral()
+    });
+    
     try {
       // Prepara os dados atualizados
       const updates = {
         horarios: horarios,
         observacao: observacao,
-        status: getStatusGeral() // Status calculado automaticamente
+        status: getStatusGeral(),
+        lastUpdated: new Date().toISOString()
       };
 
       // 🔄 SINCRONIZAÇÃO COM O SISTEMA
-      const diaIndex = parseInt(day.dia) - 1; // Assumindo que day.dia é o número do dia
+      const diaIndex = parseInt(day.dia) - 1;
+      console.log('🔍 [DEBUG] Chamando updateDayAndSync...', { diaIndex, updates });
+      
       const result = await updateDayAndSync(diaIndex, updates);
       
+      console.log('🔍 [DEBUG] Resultado do updateDayAndSync:', result);
+      
       if (result.success) {
+        // 🎯 SALVAR CONFIGURAÇÃO NO FIREBASE PARA SINCRONIZAÇÃO
+        console.log('🔍 [DEBUG] Chamando saveDayConfigToFirebase...', { 
+          mesAno, 
+          dia: parseInt(day.dia), 
+          updates 
+        });
+        
+        const firebaseResult = await saveDayConfigToFirebase(mesAno, parseInt(day.dia), updates);
+        
+        console.log('🔍 [DEBUG] Resultado do saveDayConfigToFirebase:', firebaseResult);
+        
+        setSyncStatus('Configurações salvas e sincronizadas ✅');
         setIsEditing(false);
+        
         if (onUpdateDay) {
           onUpdateDay(day.dia, updates);
         }
+        
+        // 🎯 FEEDBACK VISUAL
+        setTimeout(() => setSyncStatus(''), 3000);
+      } else {
+        console.error('❌ [DEBUG] updateDayAndSync falhou:', result);
+        setSyncStatus('Erro na sincronização ❌');
       }
     } catch (error) {
-      console.error('Erro ao salvar:', error);
-      alert('Erro ao salvar horários');
+      console.error('❌ [DEBUG] Erro ao salvar:', error);
+      setSyncStatus('Erro ao salvar configurações ❌');
+      alert('Erro ao salvar horários: ' + error.message);
     } finally {
       setSaving(false);
     }
   };
 
   const handleCancel = () => {
+    console.log('🔍 [DEBUG] Cancelando edição');
     setHorarios(day.horarios || {});
     setObservacao(day.observacao || '');
     setIsEditing(false);
+    setSyncStatus('');
+  };
+
+  // 🆕 SINCRONIZAÇÃO MANUAL
+  const handleForceSync = async () => {
+    console.log('🔍 [DEBUG] Forçando sincronização manual');
+    await loadRealBookingData();
   };
 
   const statusGeral = getStatusGeral();
@@ -156,13 +263,13 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
           </div>
           
           {/* Mini status dos horários CUSTOMIZÁVEIS */}
-          <div className="space-y-1 mb-2">
+          <div className="space-y-1 mb-2 max-h-20 overflow-y-auto">
             {Object.entries(horarios).map(([horarioKey, horario]) => {
               const statusInfo = statusOptions.find(opt => opt.value === horario.status);
               
               return (
                 <div key={horarioKey} className="flex justify-between items-center text-xs">
-                  <span>{horarioKey}</span>
+                  <span className="font-medium">{horarioKey}</span>
                   <div className="flex items-center gap-1">
                     <span className={`
                       px-1 rounded text-white text-xs
@@ -195,15 +302,41 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
           >
             ⚙️ Horários
           </button>
+
+          {/* 🆕 DEBUG INFO */}
+          <div className="mt-1 text-xs text-gray-400">
+            ID: {mesAno}-{day.dia}
+          </div>
         </div>
       ) : (
         // MODO EDIÇÃO DE HORÁRIOS CUSTOMIZÁVEIS
         <div className="space-y-3">
-          <div className="font-bold text-center text-lg">{day.dia}</div>
+          <div className="font-bold text-center text-lg">Dia {day.dia}</div>
+
+          {/* 🆕 STATUS DE SINCRONIZAÇÃO */}
+          <div className={`text-xs text-center p-1 rounded ${
+            syncStatus.includes('✅') ? 'bg-green-100 text-green-700' :
+            syncStatus.includes('❌') ? 'bg-red-100 text-red-700' :
+            'bg-blue-100 text-blue-700'
+          }`}>
+            {syncStatus || 'Editando horários...'}
+          </div>
 
           {/* Lista de horários editáveis */}
           <div className="space-y-2 max-h-40 overflow-y-auto">
-            <label className="block text-xs font-semibold text-gray-700">Horários Customizáveis:</label>
+            <div className="flex justify-between items-center">
+              <label className="block text-xs font-semibold text-gray-700">
+                Horários Customizáveis:
+              </label>
+              <button
+                onClick={handleForceSync}
+                className="text-xs bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded"
+                title="Sincronizar com agendamentos reais"
+              >
+                🔄 Sincronizar
+              </button>
+            </div>
+            
             {Object.entries(horarios).map(([horarioKey, horario]) => (
               <div key={horarioKey} className="border rounded p-2 bg-white">
                 <div className="flex justify-between items-center mb-2">
@@ -224,6 +357,7 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
                     onClick={() => removerHorario(horarioKey)}
                     className="text-red-600 hover:text-red-800 text-xs"
                     disabled={Object.keys(horarios).length <= 1}
+                    title="Remover horário"
                   >
                     ❌
                   </button>
@@ -246,11 +380,11 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
                     <label>Lot. Máx:</label>
                     <input
                       type="number"
-                      value={horario.lotacaoMaxima}
-                      onChange={(e) => handleHorarioChange(horarioKey, 'lotacaoMaxima', parseInt(e.target.value))}
+                      value={horario.lotacaoAtual}
+                      onChange={(e) => handleHorarioChange(horarioKey, 'lotacaoAtual', parseInt(e.target.value) || 0)}
                       className="w-full border rounded px-1"
-                      min="1"
-                      max="50"
+                      min="0"
+                      max={horario.lotacaoMaxima}
                     />
                   </div>
                   <div>
@@ -258,7 +392,7 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
                     <input
                       type="number"
                       value={horario.lotacaoAtual}
-                      onChange={(e) => handleHorarioChange(horarioKey, 'lotacaoAtual', parseInt(e.target.value))}
+                      onChange={(e) => handleHorarioChange(horarioKey, 'lotacaoAtual', parseInt(e.target.value) || 0)}
                       className="w-full border rounded px-1"
                       min="0"
                       max={horario.lotacaoMaxima}
@@ -318,6 +452,14 @@ const DaySettingsCard = ({ day, onUpdateDay, mesAno }) => {
             >
               ❌ Cancelar
             </button>
+          </div>
+
+          {/* 🆕 DEBUG INFO */}
+          <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
+            <div className="font-semibold">🔍 Debug Info:</div>
+            <div>ID Firebase: {mesAno}-{day.dia}</div>
+            <div>Horários: {Object.keys(horarios).length}</div>
+            <div>Status: {statusGeral}</div>
           </div>
         </div>
       )}

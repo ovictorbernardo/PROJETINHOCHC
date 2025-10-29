@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import InfoMessage from '../../ui/InfoMessage';
 import { adultTemplate, childTemplate, validateCPF, validateEmail, calculateAge } from '../../../utils/bookingTypes';
-import { checkAvailability } from '../../../services/bookingService'; // Importar serviço de verificação
+import { checkAvailability, BookingService } from '../../../services/bookingService';
+import { useSyncManager } from '../../../hooks/useSyncManager';
 
 const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading }) => {
   const [formData, setFormData] = useState({
@@ -12,7 +13,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
     data: {
       dia: selectedDay.dia,
       mesAno: mesAno,
-      horario: '10:00' // Horário padrão
+      horario: '10:00'
     }
   });
 
@@ -24,11 +25,62 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
     maxLimit: 30
   });
 
-  // 🎯 VERIFICAR DISPONIBILIDADE DO HORÁRIO
-  useEffect(() => {
-    checkTimeAvailability();
-  }, [formData.data.horario, selectedDay.dia, mesAno]);
+  const [dayConfig, setDayConfig] = useState({
+    maxAdultos: 5,
+    maxCriancas: 20,
+    horarios: {}
+  });
 
+  // 🎯 USAR HOOK DE SINCRONIZAÇÃO
+  const { syncStatus } = useSyncManager(mesAno, new Date(selectedDay.ano, selectedDay.mes - 1, selectedDay.dia));
+
+  // 🎯 CARREGAR CONFIGURAÇÃO DO DIA
+  useEffect(() => {
+    loadDayConfig();
+  }, [selectedDay.dia, mesAno]);
+
+  // 🎯 OUVIR ATUALIZAÇÕES EM TEMPO REAL
+  useEffect(() => {
+    const handleDayConfigUpdate = (event) => {
+      if (event.detail.mesAno === mesAno && event.detail.dayNumber === selectedDay.dia) {
+        setDayConfig(event.detail.config);
+        checkTimeAvailability(); // Re-verificar disponibilidade
+      }
+    };
+
+    window.addEventListener('dayConfigUpdated', handleDayConfigUpdate);
+    return () => window.removeEventListener('dayConfigUpdated', handleDayConfigUpdate);
+  }, [mesAno, selectedDay.dia]);
+
+  const loadDayConfig = async () => {
+    try {
+      const config = await BookingService.getDayConfig(mesAno, selectedDay.dia);
+      setDayConfig(config);
+      
+      // 🎯 VERIFICAR SE O HORÁRIO SELECIONADO AINDA ESTÁ DISPONÍVEL
+      const horarioConfig = config.horarios?.[formData.data.horario];
+      if (!horarioConfig?.disponivel) {
+        // 🎯 ENCONTRAR PRIMEIRO HORÁRIO DISPONÍVEL
+        const availableTime = Object.keys(config.horarios || {}).find(
+          time => config.horarios[time]?.disponivel
+        );
+        
+        if (availableTime) {
+          setFormData(prev => ({
+            ...prev,
+            data: { ...prev.data, horario: availableTime }
+          }));
+        }
+      }
+      
+      checkTimeAvailability();
+    } catch (error) {
+      console.error('Erro ao carregar configuração do dia:', error);
+      checkTimeAvailability();
+    }
+  };
+
+  // 🎯 VERIFICAR DISPONIBILIDADE DO HORÁRIO
   const checkTimeAvailability = async () => {
     setAvailability(prev => ({ ...prev, loading: true }));
     
@@ -36,17 +88,21 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
       const dateString = `${selectedDay.dia.toString().padStart(2, '0')}/${mesAno}`;
       const result = await checkAvailability(dateString, formData.data.horario);
       
+      // 🎯 OBTER LIMITE MÁXIMO DA CONFIGURAÇÃO DO DIA
+      const horarioConfig = dayConfig.horarios?.[formData.data.horario];
+      const maxLimit = horarioConfig?.maxPessoas || result.maxLimit || 30;
+      
       setAvailability({
         loading: false,
-        available: result.available,
+        available: result.available && (horarioConfig?.disponivel !== false),
         currentCount: result.currentCount,
-        maxLimit: result.maxLimit
+        maxLimit: maxLimit
       });
     } catch (error) {
       console.error('Erro ao verificar disponibilidade:', error);
       setAvailability({
         loading: false,
-        available: true, // Em caso de erro, permite o agendamento
+        available: true,
         currentCount: 0,
         maxLimit: 30
       });
@@ -61,9 +117,10 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
     });
   };
 
-  // 🎯 GERENCIAMENTO DE ADULTOS
+  // 🎯 GERENCIAMENTO DE ADULTOS COM LIMITE DINÂMICO
   const addAdulto = () => {
-    if (formData.adultos.length < 5) {
+    const maxAdultos = dayConfig.maxAdultos || 5;
+    if (formData.adultos.length < maxAdultos) {
       setFormData({
         ...formData,
         adultos: [...formData.adultos, { ...adultTemplate }]
@@ -84,12 +141,15 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
     setFormData({ ...formData, adultos: novosAdultos });
   };
 
-  // 🧒 GERENCIAMENTO DE CRIANÇAS
+  // 🧒 GERENCIAMENTO DE CRIANÇAS COM LIMITE DINÂMICO
   const addCrianca = () => {
-    setFormData({
-      ...formData,
-      criancas: [...formData.criancas, { ...childTemplate }]
-    });
+    const maxCriancas = dayConfig.maxCriancas || 20;
+    if (formData.criancas.length < maxCriancas) {
+      setFormData({
+        ...formData,
+        criancas: [...formData.criancas, { ...childTemplate }]
+      });
+    }
   };
 
   const removeCrianca = (index) => {
@@ -110,7 +170,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
     setFormData({ ...formData, criancas: novasCriancas });
   };
 
-  // ✅ VALIDAÇÃO DO FORMULÁRIO
+  // ✅ VALIDAÇÃO DO FORMULÁRIO ATUALIZADA
   const validateForm = () => {
     const newErrors = {};
 
@@ -125,6 +185,17 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
     
     if (totalPessoas > vagasRestantes) {
       newErrors.capacity = `Você está tentando agendar ${totalPessoas} pessoas, mas só temos ${vagasRestantes} vagas restantes neste horário.`;
+    }
+
+    // 🎯 VERIFICAR LIMITES DINÂMICOS
+    const maxAdultos = dayConfig.maxAdultos || 5;
+    if (formData.adultos.length > maxAdultos) {
+      newErrors.adultLimit = `Máximo de ${maxAdultos} adultos permitidos por agendamento.`;
+    }
+
+    const maxCriancas = dayConfig.maxCriancas || 20;
+    if (formData.criancas.length > maxCriancas) {
+      newErrors.childLimit = `Máximo de ${maxCriancas} crianças permitidas por agendamento.`;
     }
 
     // Valida adultos
@@ -169,7 +240,8 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
         ...formData,
         status: 'pendente',
         createdAt: new Date().toISOString(),
-        totalPessoas: formData.adultos.length + formData.criancas.length
+        totalPessoas: formData.adultos.length + formData.criancas.length,
+        dayConfig: dayConfig // 🎯 INCLUIR CONFIGURAÇÃO DO DIA PARA AUDITORIA
       };
       
       onSubmit(bookingData);
@@ -179,6 +251,14 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
   const [mes, ano] = mesAno.split('-').map(Number);
   const totalPessoas = formData.adultos.length + formData.criancas.length;
   const vagasRestantes = availability.maxLimit - availability.currentCount;
+  
+  // 🎯 OBTER HORÁRIOS DISPONÍVEIS DA CONFIGURAÇÃO DO DIA
+  const availableTimes = Object.keys(dayConfig.horarios || {})
+    .filter(time => dayConfig.horarios[time]?.disponivel !== false)
+    .sort();
+
+  const maxAdultos = dayConfig.maxAdultos || 5;
+  const maxCriancas = dayConfig.maxCriancas || 20;
 
   return (
     <div className="bg-white rounded-lg shadow-lg p-6 mb-6 max-w-4xl mx-auto">
@@ -186,13 +266,20 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
         <h2 className="text-xl font-bold text-gray-800">
           Agendamento de Visita - Quartel Central
         </h2>
-        <button
-          onClick={onCancel}
-          className="text-gray-500 hover:text-gray-700 text-2xl"
-          aria-label="Fechar formulário"
-        >
-          ✕
-        </button>
+        <div className="flex items-center space-x-2">
+          {syncStatus === 'updated' && (
+            <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+              ✓ Atualizado
+            </span>
+          )}
+          <button
+            onClick={onCancel}
+            className="text-gray-500 hover:text-gray-700 text-2xl"
+            aria-label="Fechar formulário"
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       <InfoMessage 
@@ -202,7 +289,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
       />
 
       <form onSubmit={handleSubmit} className="space-y-6 mt-6">
-        {/* 📅 HORÁRIO DA VISITA COM DISPONIBILIDADE */}
+        {/* 📅 HORÁRIO DA VISITA COM DISPONIBILIDADE DINÂMICA */}
         <div className="bg-blue-50 p-4 rounded-lg">
           <div className="flex justify-between items-center mb-3">
             <h3 className="font-semibold text-blue-800">Horário da Visita</h3>
@@ -220,16 +307,24 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
             )}
           </div>
           
-          <select
-            value={formData.data.horario}
-            onChange={(e) => handleTimeChange(e.target.value)}
-            className="w-full p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2"
-            disabled={loading}
-          >
-            <option value="10:00">10:00 - Manhã</option>
-            <option value="14:00">14:00 - Tarde</option>
-            <option value="16:00">16:00 - Tarde</option>
-          </select>
+          {availableTimes.length > 0 ? (
+            <select
+              value={formData.data.horario}
+              onChange={(e) => handleTimeChange(e.target.value)}
+              className="w-full p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2"
+              disabled={loading}
+            >
+              {availableTimes.map(time => (
+                <option key={time} value={time}>
+                  {time} - {time === '10:00' ? 'Manhã' : time === '14:00' ? 'Tarde' : 'Tarde'}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="text-red-600 bg-red-50 p-3 rounded border border-red-200">
+              Nenhum horário disponível para esta data.
+            </div>
+          )}
 
           {/* STATUS DE DISPONIBILIDADE */}
           {availability.loading ? (
@@ -242,9 +337,9 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
               availability.available ? 'text-green-600' : 'text-red-600'
             }`}>
               {availability.available ? (
-                <span>✅ Disponível - {availability.currentCount}/30 pessoas agendadas</span>
+                <span>✅ Disponível - {availability.currentCount}/{availability.maxLimit} pessoas agendadas</span>
               ) : (
-                <span>❌ Lotado - {availability.currentCount}/30 pessoas agendadas</span>
+                <span>❌ Lotado - {availability.currentCount}/{availability.maxLimit} pessoas agendadas</span>
               )}
             </div>
           )}
@@ -264,13 +359,13 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
           )}
         </div>
 
-        {/* 👥 SEÇÃO DE ADULTOS */}
+        {/* 👥 SEÇÃO DE ADULTOS COM LIMITE DINÂMICO */}
         <div className="border rounded-lg p-4">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold text-gray-800">
-              Adultos ({formData.adultos.length})
+              Adultos ({formData.adultos.length}/{maxAdultos})
             </h3>
-            {formData.adultos.length < 5 && (
+            {formData.adultos.length < maxAdultos && (
               <button
                 type="button"
                 onClick={addAdulto}
@@ -281,6 +376,12 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
               </button>
             )}
           </div>
+
+          {errors.adultLimit && (
+            <div className="mb-4 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+              {errors.adultLimit}
+            </div>
+          )}
 
           {formData.adultos.map((adulto, index) => (
             <div key={index} className="border-b pb-4 mb-4 last:border-b-0 last:mb-0">
@@ -379,21 +480,29 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
           ))}
         </div>
 
-        {/* 🧒 SEÇÃO DE CRIANÇAS */}
+        {/* 🧒 SEÇÃO DE CRIANÇAS COM LIMITE DINÂMICO */}
         <div className="border rounded-lg p-4">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold text-gray-800">
-              Crianças ({formData.criancas.length})
+              Crianças ({formData.criancas.length}/{maxCriancas})
             </h3>
-            <button
-              type="button"
-              onClick={addCrianca}
-              disabled={!availability.available || loading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-3 py-1 rounded text-sm"
-            >
-              + Adicionar Criança
-            </button>
+            {formData.criancas.length < maxCriancas && (
+              <button
+                type="button"
+                onClick={addCrianca}
+                disabled={!availability.available || loading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-3 py-1 rounded text-sm"
+              >
+                + Adicionar Criança
+              </button>
+            )}
           </div>
+
+          {errors.childLimit && (
+            <div className="mb-4 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+              {errors.childLimit}
+            </div>
+          )}
 
           {formData.criancas.length === 0 ? (
             <p className="text-gray-500 text-center py-4">
@@ -578,7 +687,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
           icon="⚠️"
         />
 
-        {/* 📊 RESUMO */}
+        {/* 📊 RESUMO ATUALIZADO */}
         <div className={`border rounded-lg p-4 ${
           !availability.available ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'
         }`}>
@@ -595,10 +704,10 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
             <div className="font-medium">{formData.data.horario}</div>
             
             <div className="text-gray-600">Total de Adultos:</div>
-            <div className="font-medium">{formData.adultos.length}</div>
+            <div className="font-medium">{formData.adultos.length}/{maxAdultos}</div>
             
             <div className="text-gray-600">Total de Crianças:</div>
-            <div className="font-medium">{formData.criancas.length}</div>
+            <div className="font-medium">{formData.criancas.length}/{maxCriancas}</div>
             
             <div className="text-gray-600">Total de Pessoas:</div>
             <div className="font-medium">{totalPessoas}</div>
@@ -624,7 +733,7 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
           </button>
           <button
             type="submit"
-            disabled={loading || !availability.available}
+            disabled={loading || !availability.available || availableTimes.length === 0}
             className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center"
           >
             {loading ? (
@@ -634,6 +743,8 @@ const AdvancedBookingForm = ({ selectedDay, mesAno, onSubmit, onCancel, loading 
               </>
             ) : !availability.available ? (
               'Horário Lotado'
+            ) : availableTimes.length === 0 ? (
+              'Nenhum Horário Disponível'
             ) : (
               `Confirmar Agendamento (${totalPessoas} pessoas)`
             )}

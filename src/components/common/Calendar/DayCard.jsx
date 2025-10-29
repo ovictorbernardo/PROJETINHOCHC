@@ -1,240 +1,186 @@
-// src/components/common/Calendar/DayCard.jsx
-import React from 'react';
+// src/components/common/Calendar/DayCard.jsx — VERSÃO INTEGRADA + VISUAL MINIMALISTA
+import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import { useAuth } from '../../../contexts/AuthContext';
+import { DayConfigService } from '../../../services/dayConfigService';
 
-const DayCard = ({ 
-  dayInfo, 
-  isSelected, 
-  isAdmin = false, 
-  onDayClick 
+const DayCard = ({
+  dayInfo,
+  isSelected,
+  isAdmin = false,
+  onDayClick
 }) => {
   const { user } = useAuth();
-  
-  // 🎯 BUSCAR DADOS EM TEMPO REAL DO REDUX/FIREBASE
+  const [availableHorarios, setAvailableHorarios] = useState([]);
+  const [loading, setLoading] = useState(false);
+
   const dayConfigs = useSelector(state => state.agenda.dayConfigs || {});
   const currentMesAno = useSelector(state => state.agenda.currentMesAno);
-  
-  // 🔄 OBTER CONFIGURAÇÃO MAIS ATUALIZADA DO DIA
+
+  useEffect(() => {
+    const loadHorariosDisponiveis = async () => {
+      if (dayInfo?.dia && currentMesAno) {
+        setLoading(true);
+        try {
+          const horarios = await DayConfigService.getAvailableHorarios(currentMesAno, dayInfo.dia);
+          setAvailableHorarios(horarios);
+        } catch (error) {
+          console.error('❌ Erro ao carregar horários:', error);
+          setAvailableHorarios([]);
+        } finally {
+          setLoading(false);
+        }
+      }
+    };
+    loadHorariosDisponiveis();
+  }, [dayInfo, currentMesAno]);
+
+  // 🔍 Combinar dados locais + Firebase
   const getCurrentDayConfig = () => {
     const configKey = `${currentMesAno}-${dayInfo.dia.toString().padStart(2, '0')}`;
     const firebaseConfig = dayConfigs[configKey];
-    
-    // Priorizar configuração do Firebase, fallback para dayInfo
-    return firebaseConfig || dayInfo;
+    return {
+      ...dayInfo,
+      ...firebaseConfig,
+      disponivel: availableHorarios.length > 0,
+      status: availableHorarios.length > 0
+        ? 'disponivel'
+        : (firebaseConfig?.status || dayInfo.status || 'indisponivel'),
+      horariosDisponiveis: availableHorarios
+    };
   };
 
   const currentDayInfo = getCurrentDayConfig();
 
-  // 🎨 SISTEMA DE CORES SINCRONIZADO
-  const getDayStatusColor = (status) => {
-    const colors = {
-      disponivel: 'bg-green-50 border-green-300 hover:bg-green-100 text-green-800',
-      lotado: 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100',
-      fechado: 'bg-gray-100 border-gray-300 text-gray-600',
-      indisponivel: 'bg-yellow-50 border-yellow-300 text-yellow-800 hover:bg-yellow-100'
-    };
-    return colors[status] || 'bg-blue-50 border-blue-300 text-blue-800';
+  // 🔵 Sistema de status minimalista
+  const statusColors = {
+    disponivel: 'bg-white hover:bg-green-50 border-green-200 text-green-800',
+    lotado: 'bg-white hover:bg-red-50 border-red-200 text-red-800',
+    fechado: 'bg-gray-100 border-gray-300 text-gray-500',
+    indisponivel: 'bg-white hover:bg-yellow-50 border-yellow-200 text-yellow-800',
+    pausado: 'bg-blue-50 border-blue-200 text-blue-700'
   };
 
-  // 🎯 SISTEMA DE ÍCONES SINCRONIZADO
-  const getDayStatusIcon = (status) => {
-    const icons = {
-      disponivel: '🟢',
-      lotado: '🔴', 
-      fechado: '⚫',
-      indisponivel: '🟡'
-    };
-    return icons[status] || '🔵';
+  const statusIcons = {
+    disponivel: '✅',
+    lotado: '🔴',
+    fechado: '⚫',
+    indisponivel: '🟡',
+    pausado: '⏸️'
   };
 
-  // 📝 SISTEMA DE TEXTO SINCRONIZADO
-  const getDayStatusText = (status) => {
-    const texts = {
-      disponivel: 'Disponível',
-      lotado: 'Lotado', 
-      fechado: 'Fechado',
-      indisponivel: 'Indisponível'
-    };
-    return texts[status] || status;
+  const statusTexts = {
+    disponivel: `Disponível (${availableHorarios.length})`,
+    lotado: 'Lotado',
+    fechado: 'Fechado',
+    indisponivel: 'Indisponível',
+    pausado: 'Pausado'
   };
 
-  // 🔍 OBTER STATUS ATUAL CONSISTENTE
-  const getCurrentStatus = () => {
-    // Verificar se há configuração específica do Firebase
-    if (currentDayInfo.status) {
-      return currentDayInfo.status;
-    }
-    
-    // Fallback para lógica local
-    if (currentDayInfo.disponivel === false) return 'fechado';
-    if (currentDayInfo.lotado) return 'lotado';
-    if (currentDayInfo.disponivel === true) return 'disponivel';
-    
-    return 'indisponivel';
-  };
+  const currentStatus = currentDayInfo.status || 'indisponivel';
+  const color = statusColors[currentStatus] || statusColors.indisponivel;
+  const icon = statusIcons[currentStatus] || statusIcons.indisponivel;
+  const text = statusTexts[currentStatus] || statusTexts.indisponivel;
 
-  const currentStatus = getCurrentStatus();
+  const isToday = currentDayInfo.isToday;
   const isDomingo = currentDayInfo.ehDomingo;
   const isPassado = currentDayInfo.ehPassado;
 
-  // 🖱️ MANIPULADOR DE CLIQUE MELHORADO
   const handleClick = () => {
-    console.log('📅 Dia clicado:', {
-      dia: currentDayInfo.dia,
-      status: currentStatus,
-      isAdmin,
-      config: currentDayInfo
-    });
-
     if (!isAdmin) {
-      // 👤 COMPORTAMENTO PARA USUÁRIO COMUM
       switch (currentStatus) {
         case 'indisponivel':
-          alert('🔒 Este mês não está disponível para agendamentos no momento.');
+          alert('🔒 Este mês não está disponível para agendamentos.');
           return;
-        
         case 'fechado':
-          if (isDomingo) {
-            alert('🚫 Domingo - Museu fechado.');
-          } else {
-            alert('🚫 Este dia está fechado para agendamentos.');
-          }
+          alert(isDomingo ? '🚫 Domingo - Museu fechado.' : '🚫 Este dia está fechado.');
           return;
-        
         case 'lotado':
-          alert('📦 Este dia está lotado. Não há vagas disponíveis.');
+          alert('📦 Este dia está lotado.');
           return;
-        
         case 'disponivel':
-          // Permitir clique - dia disponível
           break;
-        
         default:
-          alert('⚠️ Este dia não está disponível para agendamento.');
+          alert('⚠️ Este dia não está disponível.');
           return;
       }
     }
-    
-    // 🎯 CHAMAR CALLBACK COM INFORMAÇÕES ATUALIZADAS
+
     if (onDayClick) {
       onDayClick({
         ...currentDayInfo,
         status: currentStatus,
-        disponivel: currentStatus === 'disponivel'
+        disponivel: currentStatus === 'disponivel',
+        horariosDisponiveis: availableHorarios
       });
     }
   };
 
-  // 📱 TOOLTIP DINÂMICO
-  const getTooltipText = () => {
-    const baseText = getDayStatusText(currentStatus);
-    
-    if (currentDayInfo.observacao) {
-      return `${baseText} - ${currentDayInfo.observacao}`;
-    }
-    
-    if (isDomingo) {
-      return `${baseText} - Domingo (fechado)`;
-    }
-    
-    if (isPassado) {
-      return `${baseText} - Data passada`;
-    }
-    
-    return baseText;
-  };
-
-  // 🔄 VERIFICAR SE PODE INTERAGIR
   const canInteract = isAdmin || currentStatus === 'disponivel';
+
+  const selectedStyle = isSelected
+    ? 'ring-2 ring-blue-500 shadow-lg transform scale-105'
+    : '';
+
+  const todayStyle = isToday ? 'ring-2 ring-blue-500 ring-offset-2' : '';
 
   return (
     <div
       className={`
-        border-2 p-2 rounded-lg text-center cursor-pointer min-h-16
-        transition-all duration-200 ease-in-out flex flex-col
-        ${getDayStatusColor(currentStatus)}
-        ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2 scale-105 shadow-lg' : ''}
-        ${
-          !canInteract 
-            ? 'cursor-not-allowed opacity-70 grayscale-30' 
-            : 'hover:shadow-md hover:scale-105 hover:border-blue-400'
-        }
-        ${currentDayInfo.sincronizado ? 'border-dashed' : 'border-solid'}
+        relative border rounded-lg p-3
+        transition-all duration-200 cursor-pointer group
+        ${color} ${todayStyle} ${selectedStyle}
+        ${!canInteract ? 'cursor-not-allowed opacity-70' : ''}
+        h-24 flex flex-col
       `}
-      onClick={handleClick}
-      title={getTooltipText()}
+      onClick={canInteract ? handleClick : undefined}
+      title={
+        loading
+          ? 'Carregando disponibilidade...'
+          : currentDayInfo.observacao ||
+            (isPassado
+              ? 'Data passada'
+              : `Status: ${text}${availableHorarios.length > 0 ? ' | Horários: ' + availableHorarios.join(', ') : ''}`)
+      }
     >
-      {/* NÚMERO DO DIA */}
-      <div className="font-bold text-lg flex justify-between items-start">
-        <span>{currentDayInfo.dia}</span>
-        
-        {/* INDICADOR DE SINCRONIZAÇÃO */}
-        {currentDayInfo.sincronizado && (
-          <span className="text-xs" title="Sincronizado com nuvem">☁️</span>
-        )}
-      </div>
-
-      {/* STATUS E ÍCONE */}
-      <div className="flex items-center justify-center gap-1 mt-1 flex-grow">
-        <span className="text-lg">{getDayStatusIcon(currentStatus)}</span>
-        <span className="text-xs hidden sm:inline">
-          {getDayStatusText(currentStatus)}
+      <div className="flex justify-between items-start mb-1">
+        <span
+          className={`
+            text-lg font-semibold
+            ${currentStatus === 'fechado' ? 'text-gray-400' : 'text-gray-900'}
+          `}
+        >
+          {currentDayInfo.dia}
         </span>
+        <span className="text-sm opacity-80">{icon}</span>
       </div>
 
-      {/* INFORMAÇÕES EXTRAS */}
-      <div className="mt-auto">
-        {/* CONTADOR DE AGENDAMENTOS */}
-        {currentDayInfo.agendamentosCount > 0 && (
-          <div className="text-xs bg-blue-100 text-blue-800 rounded px-1 mb-1">
-            📋 {currentDayInfo.agendamentosCount}
-          </div>
-        )}
-        
-        {/* OBSERVAÇÃO */}
-        {currentDayInfo.observacao && (
-          <div 
-            className="text-xs opacity-75 truncate" 
-            title={currentDayInfo.observacao}
-          >
-            ⓘ {currentDayInfo.observacao}
-          </div>
-        )}
-        
-        {/* INDICADORES ESPECIAIS */}
-        <div className="flex justify-center gap-1 mt-1">
-          {isDomingo && (
-            <span className="text-xs" title="Domingo">📅</span>
-          )}
-          {isPassado && (
-            <span className="text-xs" title="Data passada">⏰</span>
-          )}
-          {currentDayInfo.lotado && (
-            <span className="text-xs" title="Lotado">👥</span>
-          )}
-        </div>
+      <div
+        className={`
+          text-xs font-medium mt-1
+          ${currentStatus === 'fechado' ? 'text-gray-400' : ''}
+          ${currentStatus === 'disponivel' ? 'text-green-600' : ''}
+          ${currentStatus === 'lotado' ? 'text-red-600' : ''}
+          ${currentStatus === 'indisponivel' ? 'text-yellow-600' : ''}
+          ${currentStatus === 'pausado' ? 'text-blue-600' : ''}
+        `}
+      >
+        {text}
       </div>
 
-      {/* DEBUG - APENAS DESENVOLVIMENTO */}
-      {process.env.NODE_ENV === 'development' && isAdmin && (
-        <div className="text-[6px] opacity-50 mt-1">
-          {currentDayInfo.sincronizado ? 'CLOUD' : 'LOCAL'}
+      {isToday && (
+        <div className="absolute top-1 right-1">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            Hoje
+          </span>
         </div>
+      )}
+
+      {currentStatus === 'disponivel' && (
+        <div className="absolute inset-0 rounded-lg bg-green-500 opacity-0 group-hover:opacity-5 transition-opacity duration-200" />
       )}
     </div>
   );
 };
 
-// 🎯 MEMO PARA OTIMIZAÇÃO DE RENDERIZAÇÃO
-export default React.memo(DayCard, (prevProps, nextProps) => {
-  // Evitar re-render desnecessário se apenas isSelected mudar
-  return (
-    prevProps.dayInfo?.status === nextProps.dayInfo?.status &&
-    prevProps.dayInfo?.disponivel === nextProps.dayInfo?.disponivel &&
-    prevProps.dayInfo?.lotado === nextProps.dayInfo?.lotado &&
-    prevProps.dayInfo?.observacao === nextProps.dayInfo?.observacao &&
-    prevProps.isSelected === nextProps.isSelected &&
-    prevProps.isAdmin === nextProps.isAdmin
-  );
-});
+export default DayCard;
